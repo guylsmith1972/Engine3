@@ -1,7 +1,6 @@
 // src/lib.rs
 
 pub mod geometry;
-pub mod generator;
 pub mod intersection;
 pub mod vertex; // Assuming Vertex struct is core and might be used by geometry or other lib parts
 

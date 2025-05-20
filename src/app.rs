@@ -234,8 +234,9 @@ impl PolygonApp {
 
         let raw_input = self.egui_state.take_egui_input(window);
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            build_ui(ctx, &ConvexPolygon::new(), &ConvexPolygon::new(), &ConvexPolygon::new(), &mut false, &mut false);
+            build_ui(ctx); // Updated call to match new signature
         });
+
         self.egui_state.handle_platform_output(window, full_output.platform_output);
         let tris = self.egui_ctx.tessellate(full_output.shapes, self.egui_ctx.pixels_per_point());
         for (id, image_delta) in &full_output.textures_delta.set {
