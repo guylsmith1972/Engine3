@@ -65,11 +65,7 @@ impl Camera {
         // We want to allow points ON the near plane if our clipper put them there.
         // A point is "behind" if its z value in camera space is > -self.znear
         // (i.e., less negative than -self.znear, or positive).
-        //
-        // **** MODIFIED CHECK ****
-        // Old: if p_cam.z >= -self.znear 
-        // New: Only discard if strictly behind the near plane.
-        //      Points on the near plane (p_cam.z == -self.znear) should be projectable.
+
         if p_cam.z > -self.znear {  // Cull if z is greater (less negative / more positive) than -znear
             return None;
         }
