@@ -1,0 +1,402 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Convex Polygon Intersection</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        canvas {
+            border: 2px solid #333;
+            display: block;
+            margin: 20px auto;
+            background-color: #fefefe;
+        }
+
+        .controls {
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 0 10px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+
+            button:hover {
+                background-color: #0056b3;
+            }
+
+        .info {
+            text-align: center;
+            margin: 20px 0;
+            color: #666;
+        }
+
+        .legend {
+            display: flex;
+            justify-content: center;
+            gap: 30px;
+            margin: 20px 0;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border: 1px solid #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 style="text-align: center;">Convex Polygon Intersection Visualizer</h1>
+        <div class="info">
+            This program generates two random convex polygons and finds their intersection using the Sutherland-Hodgman clipping algorithm (O(n + m) complexity).
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgba(255, 0, 0, 0.3); border-color: red;"></div>
+                <span>Polygon 1</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgba(0, 0, 255, 0.3); border-color: blue;"></div>
+                <span>Polygon 2</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: rgba(0, 255, 0, 0.8);"></div>
+                <span>Intersection</span>
+            </div>
+        </div>
+
+        <canvas id="canvas" width="800" height="600"></canvas>
+
+        <div class="controls">
+            <button onclick="generateNewPolygons()">Generate New Polygons</button>
+            <button onclick="animatePolygons()">Animate</button>
+        </div>
+
+        <div id="stats" class="info"></div>
+    </div>
+
+    <script>
+        class Point {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+            }
+
+            clone() {
+                return new Point(this.x, this.y);
+            }
+        }
+
+        class ConvexPolygonIntersection {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                this.polygon1 = [];
+                this.polygon2 = [];
+                this.intersection = [];
+                this.animationId = null;
+                this.animationOffset = 0;
+
+                this.generateNewPolygons();
+            }
+
+            // Generate a random convex polygon using gift wrapping
+            generateConvexPolygon(centerX, centerY, radius, numVertices) {
+                const points = [];
+
+                // Generate random points around a circle with some variance
+                for (let i = 0; i < numVertices; i++) {
+                    const angle = (2 * Math.PI * i) / numVertices + (Math.random() - 0.5) * 0.5;
+                    const r = radius * (0.6 + Math.random() * 0.4);
+                    points.push(new Point(
+                        centerX + r * Math.cos(angle),
+                        centerY + r * Math.sin(angle)
+                    ));
+                }
+
+                // Sort points by angle to ensure convex order
+                const center = new Point(centerX, centerY);
+                points.sort((a, b) => {
+                    const angleA = Math.atan2(a.y - center.y, a.x - center.x);
+                    const angleB = Math.atan2(b.y - center.y, b.x - center.x);
+                    return angleA - angleB;
+                });
+
+                return points;
+            }
+
+            // Check if point is inside the edge (left side of directed line)
+            isInside(point, edgeStart, edgeEnd) {
+                return ((edgeEnd.x - edgeStart.x) * (point.y - edgeStart.y) -
+                        (edgeEnd.y - edgeStart.y) * (point.x - edgeStart.x)) >= 0;
+            }
+
+            // Compute intersection point of two lines
+            getLineIntersection(p1, p2, p3, p4) {
+                const denom = (p1.x - p2.x) * (p3.y - p4.y) - (p1.y - p2.y) * (p3.x - p4.x);
+                if (Math.abs(denom) < 1e-10) return null;
+
+                const t = ((p1.x - p3.x) * (p3.y - p4.y) - (p1.y - p3.y) * (p3.x - p4.x)) / denom;
+
+                return new Point(
+                    p1.x + t * (p2.x - p1.x),
+                    p1.y + t * (p2.y - p1.y)
+                );
+            }
+
+            // Sutherland-Hodgman clipping algorithm for convex polygons
+            clipPolygonByEdge(subjectPolygon, edgeStart, edgeEnd) {
+                if (subjectPolygon.length === 0) return [];
+
+                const clippedPolygon = [];
+                let prevVertex = subjectPolygon[subjectPolygon.length - 1];
+
+                for (const currentVertex of subjectPolygon) {
+                    if (this.isInside(currentVertex, edgeStart, edgeEnd)) {
+                        if (!this.isInside(prevVertex, edgeStart, edgeEnd)) {
+                            // Entering: add intersection point
+                            const intersection = this.getLineIntersection(
+                                prevVertex, currentVertex, edgeStart, edgeEnd
+                            );
+                            if (intersection) clippedPolygon.push(intersection);
+                        }
+                        // Add current vertex
+                        clippedPolygon.push(currentVertex.clone());
+                    } else if (this.isInside(prevVertex, edgeStart, edgeEnd)) {
+                        // Exiting: add intersection point
+                        const intersection = this.getLineIntersection(
+                            prevVertex, currentVertex, edgeStart, edgeEnd
+                        );
+                        if (intersection) clippedPolygon.push(intersection);
+                    }
+                    prevVertex = currentVertex;
+                }
+
+                return clippedPolygon;
+            }
+
+            // Find intersection of two convex polygons using Sutherland-Hodgman algorithm
+            findIntersection(polygon1, polygon2) {
+                let result = [...polygon1.map(p => p.clone())];
+
+                // Clip against each edge of polygon2
+                for (let i = 0; i < polygon2.length; i++) {
+                    const edgeStart = polygon2[i];
+                    const edgeEnd = polygon2[(i + 1) % polygon2.length];
+                    result = this.clipPolygonByEdge(result, edgeStart, edgeEnd);
+
+                    if (result.length === 0) break;
+                }
+
+                return result;
+            }
+
+            // Draw a polygon
+            drawPolygon(polygon, fillColor, strokeColor, lineWidth = 2) {
+                if (polygon.length < 3) return;
+
+                this.ctx.beginPath();
+                this.ctx.moveTo(polygon[0].x, polygon[0].y);
+                for (let i = 1; i < polygon.length; i++) {
+                    this.ctx.lineTo(polygon[i].x, polygon[i].y);
+                }
+                this.ctx.closePath();
+
+                if (fillColor) {
+                    this.ctx.fillStyle = fillColor;
+                    this.ctx.fill();
+                }
+
+                if (strokeColor) {
+                    this.ctx.strokeStyle = strokeColor;
+                    this.ctx.lineWidth = lineWidth;
+                    this.ctx.stroke();
+                }
+            }
+
+            // Draw vertex points
+            drawVertices(polygon, color, radius = 4) {
+                this.ctx.fillStyle = color;
+                for (const point of polygon) {
+                    this.ctx.beginPath();
+                    this.ctx.arc(point.x, point.y, radius, 0, 2 * Math.PI);
+                    this.ctx.fill();
+                }
+            }
+
+            // Calculate polygon area
+            calculateArea(polygon) {
+                if (polygon.length < 3) return 0;
+
+                let area = 0;
+                for (let i = 0; i < polygon.length; i++) {
+                    const j = (i + 1) % polygon.length;
+                    area += polygon[i].x * polygon[j].y;
+                    area -= polygon[j].x * polygon[i].y;
+                }
+                return Math.abs(area) / 2;
+            }
+
+            // Generate new random polygons
+            generateNewPolygons() {
+                const width = this.canvas.width;
+                const height = this.canvas.height;
+
+                // Generate two overlapping polygons near the center
+                const centerX = width * 0.5;
+                const centerY = height * 0.5;
+
+                // First polygon - slightly left and up
+                const offset1X = (Math.random() - 0.5) * 150;
+                const offset1Y = (Math.random() - 0.5) * 150;
+                const center1X = centerX + offset1X;
+                const center1Y = centerY + offset1Y;
+                const vertices1 = 3 + Math.floor(Math.random() * 5);
+                const radius1 = 80 + Math.random() * 40;
+                this.polygon1 = this.generateConvexPolygon(center1X, center1Y, radius1, vertices1);
+
+                // Second polygon - positioned to overlap with first
+                const offset2X = offset1X + (Math.random() - 0.5) * 120;
+                const offset2Y = offset1Y + (Math.random() - 0.5) * 120;
+                const center2X = centerX + offset2X;
+                const center2Y = centerY + offset2Y;
+                const vertices2 = 3 + Math.floor(Math.random() * 5);
+                const radius2 = 80 + Math.random() * 40;
+                this.polygon2 = this.generateConvexPolygon(center2X, center2Y, radius2, vertices2);
+
+                // Find intersection
+                this.intersection = this.findIntersection(this.polygon1, this.polygon2);
+
+                this.draw();
+                this.updateStats();
+            }
+
+            // Update statistics display
+            updateStats() {
+                const area1 = this.calculateArea(this.polygon1);
+                const area2 = this.calculateArea(this.polygon2);
+                const intersectionArea = this.calculateArea(this.intersection);
+
+                const statsDiv = document.getElementById('stats');
+                statsDiv.innerHTML = `
+                    <strong>Statistics:</strong><br>
+                    Polygon 1: ${this.polygon1.length} vertices, Area: ${area1.toFixed(2)}<br>
+                    Polygon 2: ${this.polygon2.length} vertices, Area: ${area2.toFixed(2)}<br>
+                    Intersection: ${this.intersection.length} vertices, Area: ${intersectionArea.toFixed(2)}
+                `;
+            }
+
+            // Draw everything
+            draw() {
+                // Clear canvas
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+                // Draw polygons with transparency
+                this.drawPolygon(this.polygon1, 'rgba(255, 0, 0, 0.3)', 'red', 2);
+                this.drawPolygon(this.polygon2, 'rgba(0, 0, 255, 0.3)', 'blue', 2);
+
+                // Draw intersection with solid color
+                this.drawPolygon(this.intersection, 'rgba(0, 255, 0, 0.8)', 'darkgreen', 3);
+
+                // Draw vertices
+                this.drawVertices(this.polygon1, 'darkred');
+                this.drawVertices(this.polygon2, 'darkblue');
+                this.drawVertices(this.intersection, 'darkgreen');
+            }
+
+            // Animate polygons moving towards each other
+            animatePolygons() {
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                    this.generateNewPolygons();
+                    return;
+                }
+
+                const originalPolygon1 = this.polygon1.map(p => p.clone());
+                const originalPolygon2 = this.polygon2.map(p => p.clone());
+
+                const animate = () => {
+                    this.animationOffset += 0.01;
+
+                    // Move polygons towards center
+                    const centerX = this.canvas.width / 2;
+                    const centerY = this.canvas.height / 2;
+                    const progress = (Math.sin(this.animationOffset) + 1) / 2;
+
+                    for (let i = 0; i < this.polygon1.length; i++) {
+                        const dx = centerX - originalPolygon1[i].x;
+                        const dy = centerY - originalPolygon1[i].y;
+                        this.polygon1[i].x = originalPolygon1[i].x + dx * progress * 0.3;
+                        this.polygon1[i].y = originalPolygon1[i].y + dy * progress * 0.3;
+                    }
+
+                    for (let i = 0; i < this.polygon2.length; i++) {
+                        const dx = centerX - originalPolygon2[i].x;
+                        const dy = centerY - originalPolygon2[i].y;
+                        this.polygon2[i].x = originalPolygon2[i].x + dx * progress * 0.3;
+                        this.polygon2[i].y = originalPolygon2[i].y + dy * progress * 0.3;
+                    }
+
+                    // Recalculate intersection
+                    this.intersection = this.findIntersection(this.polygon1, this.polygon2);
+
+                    this.draw();
+                    this.updateStats();
+
+                    this.animationId = requestAnimationFrame(animate);
+                };
+
+                animate();
+            }
+        }
+
+        // Initialize the application
+        let app;
+        window.onload = function() {
+            app = new ConvexPolygonIntersection('canvas');
+        };
+
+        // Global functions for buttons
+        function generateNewPolygons() {
+            app.generateNewPolygons();
+        }
+
+        function animatePolygons() {
+            app.animatePolygons();
+        }
+    </script>
+</body>
+</html>
