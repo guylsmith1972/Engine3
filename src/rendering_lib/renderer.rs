@@ -5,14 +5,17 @@ use std::collections::VecDeque;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
 
-use convex_polygon_intersection::vertex::Vertex;
-use convex_polygon_intersection::geometry::{ConvexPolygon, Point2, MAX_VERTICES};
-use convex_polygon_intersection::intersection::ConvexIntersection;
-use crate::scene::{Scene, Point3, TraversalState};
-use crate::camera::Camera;
+// Updated imports to use local library modules and engine_lib types
+use super::vertex::Vertex; // From rendering_lib::vertex
+use super::geometry::{ConvexPolygon, Point2, MAX_VERTICES}; // From rendering_lib::geometry
+use super::intersection::ConvexIntersection; // From rendering_lib::intersection
+
+// Assuming engine_lib is a sibling module in the same crate
+use crate::engine_lib::scene_types::{Scene, Point3, TraversalState};
+use crate::engine_lib::camera::Camera;
 
 
-const RENDERER_MAX_VERTICES: usize = MAX_VERTICES * 6 * 10; 
+const RENDERER_MAX_VERTICES: usize = MAX_VERTICES * 6 * 10;
 const RENDERER_MAX_INDICES: usize = (MAX_VERTICES.saturating_sub(2)) * 3 * 6 * 10;
 
 #[repr(C)]
@@ -129,7 +132,7 @@ impl Renderer {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
-                    min_binding_size: None, 
+                    min_binding_size: None,
                 },
                 count: None,
             }],
@@ -158,7 +161,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &shader_module,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[Vertex::desc()], // Vertex comes from rendering_lib::vertex
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader_module,
@@ -173,7 +176,7 @@ impl Renderer {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None, 
+                cull_mode: None,
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -214,12 +217,13 @@ impl Renderer {
 
     fn add_polygon_to_frame(
         &mut self,
-        polygon_2d: &ConvexPolygon, 
+        polygon_2d: &ConvexPolygon, // ConvexPolygon comes from rendering_lib::geometry
         color: [f32; 4],
     ) {
         if polygon_2d.count() < 3 { return; }
         let start_vertex_index = self.frame_vertices.len() as u16;
         for point in polygon_2d.vertices() {
+            // Vertex comes from rendering_lib::vertex, Point2 from rendering_lib::geometry
             self.frame_vertices.push(Vertex::new([point.x, point.y], color));
         }
         for i in 1..(polygon_2d.count() as u16 - 1) {
@@ -235,8 +239,8 @@ impl Renderer {
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         output_view: &wgpu::TextureView,
-        scene: &Scene,
-        camera: &Camera,
+        scene: &Scene, // Scene comes from engine_lib::scene_types
+        camera: &Camera, // Camera comes from engine_lib::camera
         screen_width: f32,
         screen_height: f32,
         clear_color: wgpu::Color,
@@ -252,13 +256,14 @@ impl Renderer {
         self.frame_vertices.clear();
         self.frame_indices.clear();
 
-        let mut traversal_queue: VecDeque<TraversalState> = VecDeque::new();
+        let mut traversal_queue: VecDeque<TraversalState> = VecDeque::new(); // TraversalState from engine_lib::scene_types
         let initial_clip_points = [
-            Point2::new(0.0, 0.0), Point2::new(screen_width, 0.0),
+            Point2::new(0.0, 0.0), Point2::new(screen_width, 0.0), // Point2 from rendering_lib::geometry
             Point2::new(screen_width, screen_height), Point2::new(0.0, screen_height),
         ];
+        // ConvexPolygon from rendering_lib::geometry
         let initial_clip_polygon = ConvexPolygon::from_points(&initial_clip_points);
-        let start_hull_id = 0; 
+        let start_hull_id = 0;
 
         if !scene.hulls.is_empty() {
              traversal_queue.push_back(TraversalState {
@@ -276,9 +281,9 @@ impl Renderer {
 
             for side in &current_hull.sides {
                 if side.vertices_3d.is_empty() { continue; }
-                let point_on_side = side.vertices_3d[0];
+                let point_on_side = side.vertices_3d[0]; // Point3 from engine_lib::scene_types
                 let cam_to_side_vec = point_on_side.sub(&camera.position);
-                if cam_to_side_vec.dot(&side.normal) <= 1e-3 { continue; } 
+                if cam_to_side_vec.dot(&side.normal) <= 1e-3 { continue; }
 
                 // 1. Transform side vertices to camera space
                 let mut vertices_cam_space: Vec<Point3> = Vec::with_capacity(side.vertices_3d.len());
@@ -287,46 +292,45 @@ impl Renderer {
                 }
 
                 // 2. Clip polygon against near plane in camera space
+                // Point3 from engine_lib::scene_types
                 let clipped_vertices_cam_space = clip_polygon_near_plane_3d(&vertices_cam_space, camera.znear);
 
                 if clipped_vertices_cam_space.len() < 3 { continue; }
 
                 // 3. Project clipped camera-space vertices to 2D screen space
                 let mut projected_points_2d: Vec<Point2> = Vec::with_capacity(clipped_vertices_cam_space.len());
-                // No need for all_points_valid check here, as clipping should ensure they are projectable
+                // Point2 from rendering_lib::geometry
                 for p_cam in &clipped_vertices_cam_space {
-                    // The project_camera_space_to_screen itself does a znear check.
-                    // Since we just clipped to be in front of znear, this should always pass,
-                    // but it's a safe check.
                     if let Some(p2d) = camera.project_camera_space_to_screen(p_cam, screen_width, screen_height) {
                         projected_points_2d.push(p2d);
                     } else {
-                        // This case should ideally not happen if clipping is correct and znear values match.
-                        // If it does, it might indicate very close points or precision issues.
-                        // For safety, we could break or log, but expect it to work.
+                        // This case should ideally not happen
                     }
                 }
                 
-                if projected_points_2d.len() < 3 { continue; } // Should not happen if clipped_vertices_cam_space >= 3
+                if projected_points_2d.len() < 3 { continue; }
                 
+                // ConvexPolygon from rendering_lib::geometry
                 let p_projected_clipped = ConvexPolygon::from_points(&projected_points_2d);
                 if p_projected_clipped.count() < 3 { continue; }
 
                 // 4. Proceed with 2D screen-space portal/wall logic
                 if side.is_portal {
                     if let Some(next_hull_id) = side.connected_hull_id {
-                        let mut v_next = ConvexPolygon::new();
+                        let mut v_next = ConvexPolygon::new(); // ConvexPolygon from rendering_lib::geometry
+                        // ConvexIntersection from rendering_lib::intersection
                         ConvexIntersection::find_intersection_into(v_current, &p_projected_clipped, &mut v_next);
                         if v_next.count() >= 3 {
                             if !processed_hulls_this_frame.contains(&next_hull_id) || !traversal_queue.iter().any(|s| s.hull_id == next_hull_id && s.screen_space_clip_polygon.vertices() == v_next.vertices()){
-                                traversal_queue.push_back(TraversalState {
+                                traversal_queue.push_back(TraversalState { // TraversalState from engine_lib::scene_types
                                     hull_id: next_hull_id, screen_space_clip_polygon: v_next,
                                 });
                             }
                         }
                     }
-                } else { 
-                    let mut final_clipped_wall_poly = ConvexPolygon::new();
+                } else {
+                    let mut final_clipped_wall_poly = ConvexPolygon::new(); // ConvexPolygon from rendering_lib::geometry
+                    // ConvexIntersection from rendering_lib::intersection
                     ConvexIntersection::find_intersection_into(&p_projected_clipped, v_current, &mut final_clipped_wall_poly);
                     if final_clipped_wall_poly.count() >= 3 {
                         self.add_polygon_to_frame(&final_clipped_wall_poly, side.color);
@@ -336,7 +340,6 @@ impl Renderer {
         }
 
         if !self.frame_vertices.is_empty() && !self.frame_indices.is_empty() {
-            // Buffer writing logic... (remains the same)
              if (self.frame_vertices.len() * std::mem::size_of::<Vertex>()) as u64 > self.vertex_buffer.size() ||
                (self.frame_indices.len() * std::mem::size_of::<u16>()) as u64 > self.index_buffer.size() {
                 eprintln!("Renderer Warning: Frame data exceeds pre-allocated buffer capacity.");
@@ -344,11 +347,12 @@ impl Renderer {
             
             queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.frame_vertices));
             let mut padded_indices_data = self.frame_indices.clone();
-            if padded_indices_data.len() % 2 == 1 { padded_indices_data.push(0); }
+            // Ensure data is u8 aligned for webgl
+            if padded_indices_data.len() % 2 == 1 { padded_indices_data.push(0); } 
             queue.write_buffer(&self.index_buffer, 0, bytemuck::cast_slice(&padded_indices_data));
         }
 
-        { 
+        {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Scene Render Pass (Renderer)"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -365,11 +369,14 @@ impl Renderer {
                 
                 let vertex_buffer_slice_size = (self.frame_vertices.len() * std::mem::size_of::<Vertex>()) as u64;
                 let effective_indices_count = self.frame_indices.len();
+                
+                // Calculate index buffer slice size correctly for potentially padded data
                 let index_buffer_slice_size = if self.frame_indices.len() % 2 == 1 {
                     ((self.frame_indices.len() + 1) * std::mem::size_of::<u16>()) as u64
                 } else {
                     (self.frame_indices.len() * std::mem::size_of::<u16>()) as u64
                 };
+
 
                 render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..vertex_buffer_slice_size));
                 render_pass.set_index_buffer(self.index_buffer.slice(..index_buffer_slice_size), wgpu::IndexFormat::Uint16);

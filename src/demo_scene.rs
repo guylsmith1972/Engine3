@@ -1,13 +1,6 @@
 // src/demo_scene.rs
 
-// You will need to import the types from your new scene_types module
-// For example:
-// use crate::engine_lib::scene_types::{Scene, Hull, SceneSide, Point3};
-// Or if engine_lib is a separate crate:
-// use engine_lib::scene_types::{Scene, Hull, SceneSide, Point3};
-// This needs to be adjusted based on your final project structure.
-// I'll use a placeholder for now.
-use engine_lib::scene_types::{Scene, Hull, SceneSide, Point3}; // Placeholder: Adjust this path!
+use crate::engine_lib::scene_types::{Scene, Hull, SceneSide, Point3};
 
 pub fn create_mvp_scene() -> Scene {
     let mut hulls = Vec::new();

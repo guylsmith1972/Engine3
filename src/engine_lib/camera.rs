@@ -1,7 +1,8 @@
 // src/camera.rs
 
-use convex_polygon_intersection::geometry::Point2;
-use crate::scene::Point3;
+use crate::rendering_lib::geometry::Point2;
+use super::scene_types::Point3;
+
 
 #[derive(Debug)]
 pub struct Camera {

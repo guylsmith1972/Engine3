@@ -1,14 +1,6 @@
 // src/engine_lib/scene_types.rs
 
-// Assuming `convex_polygon_intersection::geometry::ConvexPolygon` will be accessible
-// via a dependency or another module in engine_lib or a shared core_lib.
-// For now, let's assume it will be:
-// use rendering_lib::geometry::ConvexPolygon; 
-// OR use crate::rendering_lib::geometry::ConvexPolygon if engine_lib depends on rendering_lib
-// OR use common_geometry::ConvexPolygon if you make a third geometry library.
-// This needs to be resolved based on your final library structure.
-// For this example, I'll use a placeholder that you'll need to fix.
-use rendering_lib::geometry::ConvexPolygon; // Placeholder: Adjust this path!
+use crate::rendering_lib::geometry::ConvexPolygon;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Point3 {

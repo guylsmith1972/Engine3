@@ -1,6 +1,6 @@
 // src/intersection.rs
 
-use crate::geometry::{ConvexPolygon, Point2, MAX_VERTICES};
+use super::geometry::{ConvexPolygon, Point2, MAX_VERTICES};
 
 pub struct ConvexIntersection;
 

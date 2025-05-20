@@ -1,8 +1,9 @@
 // benches/intersection_benchmark.rs
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use convex_polygon_intersection::geometry::{ConvexPolygon, MAX_VERTICES};
-use convex_polygon_intersection::intersection::ConvexIntersection;
+use engine3_refactored::rendering_lib::geometry::{ConvexPolygon, MAX_VERTICES};
+use engine3_refactored::rendering_lib::intersection::ConvexIntersection;
+
 use rand::Rng;
 
 mod generator;

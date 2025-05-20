@@ -1,33 +1,45 @@
 [package]
-name = "engine3_app" # Or your binary crate name
+name = "engine3_refactored"
 version = "0.1.0"
 edition = "2021"
 
-# [[bin]] # You might have this if your main.rs is not src/main.rs
-# name = "engine3_app"
-# path = "src/main.rs"
-
 [dependencies]
-winit = "0.29" # Check for latest version
-wgpu = "0.19"  # Check for latest version
-env_logger = "0.10"
+winit = "0.29"
+wgpu = "0.19" # Or the specific version you are using
+tokio = { version = "1", features = ["full"] }
+env_logger = "0.11"
+log = "0.4"
+bytemuck = { version = "1.12", features = ["derive"] }
+cfg-if = "1.0.0"
+
+# Egui dependencies
 egui = "0.27"
 egui-wgpu = "0.27"
 egui-winit = "0.27"
-bytemuck = { version = "1.12", features = ["derive"] }
-tokio = { version = "1", features = ["full"] }
-# approx = "0.5.1" # If needed by geometry/intersection for comparisons
 
-# Local library dependencies
-engine_lib = { path = "src/engine_lib" }
-rendering_lib = { path = "src/rendering_lib" }
+# For WASM specific builds (optional, but good to include if targeting web)
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1.7"
+console_log = "1.0"
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Document",
+    "Window",
+    "Element",
+    "HtmlCanvasElement",
+]}
+getrandom = { version = "0.2", features = ["js"] } # for rand to work on wasm
 
-[features]
-default = []
+# For benchmarking
+[dev-dependencies]
+criterion = "0.5"
+rand = "0.8"
+
+
+# The following are likely not needed if their code was vendored into rendering_lib:
+# convex_polygon_intersection = { path = "path/to/it/if/it/was/a/local/crate" }
 
 [[bench]]
-name = "intersection_benchmark" # You can name this file benches/intersection_benchmark.rs
+name = "intersection_benchmark"
 harness = false
-
-[profile.release]
-debug = true

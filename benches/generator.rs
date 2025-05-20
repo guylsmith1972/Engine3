@@ -1,7 +1,7 @@
 // benches/generator.rs
 
 use rand::Rng;
-use convex_polygon_intersection::geometry::{ConvexPolygon, Point2};
+use engine3_refactored::rendering_lib::geometry::{ConvexPolygon, Point2};
 
 pub struct PolygonGenerator;
 

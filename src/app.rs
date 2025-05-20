@@ -1,20 +1,20 @@
 // src/app.rs
 
 use winit::{
-    event::{ElementState, WindowEvent, DeviceEvent, MouseScrollDelta},
-    keyboard::{KeyCode, PhysicalKey},
+    event::{ElementState, WindowEvent, DeviceEvent},
     window::{Window, CursorGrabMode},
 };
 
-// Library items
-//use convex_polygon_intersection::geometry::ConvexPolygon;
-
 // Local modules
 use crate::ui::build_ui;
-use crate::shader::WGSL_SHADER_SOURCE;
-use crate::scene::{Scene, Point3, create_mvp_scene};
-use crate::camera::Camera;
-use crate::renderer::Renderer;
+
+// New library imports
+use crate::rendering_lib::shader::WGSL_SHADER_SOURCE;
+use crate::rendering_lib::renderer::Renderer;
+use crate::engine_lib::camera::Camera;
+use crate::engine_lib::controller::CameraController;
+use crate::engine_lib::scene_types::{Scene, Point3};
+use crate::demo_scene::create_mvp_scene;
 
 
 pub struct PolygonApp {
@@ -28,18 +28,13 @@ pub struct PolygonApp {
 
     scene: Scene,
     camera: Camera,
+    camera_controller: CameraController, // New controller
     
     egui_ctx: egui::Context,
     egui_state: egui_winit::State,
     egui_renderer: egui_wgpu::Renderer,
 
-    // Input state
-    camera_pos_delta: Point3,
-    camera_yaw_delta: f32,
-    camera_pitch_delta: f32,
-    mouse_sensitivity: f32,
     is_focused: bool,
-    cursor_grabbed: bool,
 }
 
 impl PolygonApp {
@@ -110,36 +105,34 @@ impl PolygonApp {
             &device, config.format, None, 1,    
         );
 
-        let scene = create_mvp_scene(); // Scene colors were updated in the previous step
+        let scene = create_mvp_scene();
         let camera = Camera::new(
             Point3::new(0.0, 0.0, -2.0), 
             0.0, 0.0, 75.0, 0.1, 100.0
         );
         
         let initial_focus = window.has_focus();
-        let mut cursor_grabbed_on_init = false;
+        let mut initial_grab = false;
         if initial_focus {
             if window.set_cursor_grab(CursorGrabMode::Confined)
                 .or_else(|_e| window.set_cursor_grab(CursorGrabMode::Locked))
                 .is_ok() {
                 window.set_cursor_visible(false);
-                cursor_grabbed_on_init = true;
+                initial_grab = true;
             } else {
                 eprintln!("Could not grab cursor on init.");
             }
         }
+        
+        let camera_controller = CameraController::new(initial_grab, 0.002);
+
 
         Self {
             surface, device, queue, config, size,
             renderer, 
-            scene, camera,
+            scene, camera, camera_controller,
             egui_ctx, egui_state, egui_renderer,
-            camera_pos_delta: Point3::new(0.0,0.0,0.0),
-            camera_yaw_delta: 0.0,
-            camera_pitch_delta: 0.0,
-            mouse_sensitivity: 0.002, 
             is_focused: initial_focus,
-            cursor_grabbed: cursor_grabbed_on_init,
         }
     }
 
@@ -151,6 +144,8 @@ impl PolygonApp {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
+            // Consider notifying the renderer or camera controller if aspect ratio changes are important
+            // For now, renderer updates screen dimensions via uniform buffer per frame.
         }
     }
 
@@ -158,64 +153,9 @@ impl PolygonApp {
         self.is_focused = focused;
     }
 
-    fn grab_cursor(&mut self, window: &Window, grab: bool) {
-        if grab {
-            if !self.cursor_grabbed { 
-                window.set_cursor_grab(CursorGrabMode::Confined)
-                    .or_else(|_e| window.set_cursor_grab(CursorGrabMode::Locked))
-                    .unwrap_or_else(|e| eprintln!("Could not grab cursor: {:?}", e));
-                window.set_cursor_visible(false);
-                self.cursor_grabbed = true;
-            }
-        } else {
-            if self.cursor_grabbed { 
-                 window.set_cursor_grab(CursorGrabMode::None)
-                    .unwrap_or_else(|e| eprintln!("Could not ungrab cursor: {:?}", e));
-                window.set_cursor_visible(true);
-                self.cursor_grabbed = false;
-            }
-        }
-    }
-
     pub fn update(&mut self, dt: f32) {
-        let move_speed = 3.0 * dt; 
-        let rot_speed = 1.5 * dt; 
-
-        let cos_pitch = self.camera.pitch.cos();
-        let sin_pitch = self.camera.pitch.sin();
-        let cos_yaw = self.camera.yaw.cos();
-        let sin_yaw = self.camera.yaw.sin();
-
-        let forward_dir = Point3::new(
-            -sin_yaw * cos_pitch, 
-            sin_pitch,            
-            -cos_yaw * cos_pitch  
-        ).normalize();
-        
-        let right_dir = Point3::new(-forward_dir.z, 0.0, forward_dir.x).normalize();
-        
-        let effective_forward_input = -self.camera_pos_delta.z;
-        let effective_strafe_input = self.camera_pos_delta.x;
-
-        let move_vec_fwd = forward_dir.mul_scalar(effective_forward_input * move_speed);
-        let move_vec_strafe = right_dir.mul_scalar(effective_strafe_input * move_speed);
-        
-        self.camera.position = self.camera.position.add(&move_vec_fwd);
-        self.camera.position = self.camera.position.add(&move_vec_strafe);
-        self.camera.position.y += self.camera_pos_delta.y * move_speed;
-
-        // Apply keyboard rotation
-        self.camera.yaw += self.camera_yaw_delta * rot_speed; // Yaw is correct
-        self.camera.pitch += self.camera_pitch_delta * rot_speed; // Pitch delta signs adjusted in handle_input
-
-        self.camera.pitch = self.camera.pitch.clamp(
-            -std::f32::consts::FRAC_PI_2 + 0.01, 
-            std::f32::consts::FRAC_PI_2 - 0.01
-        );
-
-        self.camera_pos_delta = Point3::new(0.0,0.0,0.0);
-        self.camera_yaw_delta = 0.0;
-        self.camera_pitch_delta = 0.0;
+        self.camera_controller.update_camera(&mut self.camera, dt);
+        // Old direct camera update logic removed
     }
 
     pub fn render(&mut self, window: &Window) -> Result<(), wgpu::SurfaceError> {
@@ -234,7 +174,7 @@ impl PolygonApp {
 
         let raw_input = self.egui_state.take_egui_input(window);
         let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            build_ui(ctx); // Updated call to match new signature
+            build_ui(ctx); 
         });
 
         self.egui_state.handle_platform_output(window, full_output.platform_output);
@@ -267,86 +207,43 @@ impl PolygonApp {
         Ok(())
     }
     
-    pub fn handle_input(&mut self, event: &WindowEvent, window: &Window) -> bool {
+    // Renamed from handle_input to handle_window_event to better reflect its role
+    pub fn handle_window_event(&mut self, event: &WindowEvent, window: &Window) -> bool {
         let egui_consumed = self.egui_state.on_window_event(window, event);
         if egui_consumed.consumed { return true; }
 
+        // Delegate relevant window events to the camera controller
+        if self.camera_controller.handle_window_event(event, window) {
+            return true;
+        }
+
+        // App-specific window event handling (if any, beyond controller and Egui)
         match event {
-            WindowEvent::KeyboardInput { event: key_event, .. } => {
-                if key_event.state == ElementState::Pressed && key_event.physical_key == PhysicalKey::Code(KeyCode::Escape) {
-                     self.grab_cursor(window, !self.cursor_grabbed); 
-                     return true; 
-                }
-                let pressed = key_event.state == ElementState::Pressed;
-                match key_event.physical_key {
-                    // Translation and Yaw are correct from previous step
-                    PhysicalKey::Code(KeyCode::KeyW) => { self.camera_pos_delta.z = if pressed { -1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::KeyS) => { self.camera_pos_delta.z = if pressed { 1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::KeyA) => { self.camera_pos_delta.x = if pressed { -1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::KeyD) => { self.camera_pos_delta.x = if pressed { 1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::Space) => { self.camera_pos_delta.y = if pressed { 1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::ShiftLeft) | PhysicalKey::Code(KeyCode::ControlLeft) => { 
-                        self.camera_pos_delta.y = if pressed { -1.0 } else { 0.0 }; true 
-                    }
-                    PhysicalKey::Code(KeyCode::ArrowLeft) => { self.camera_yaw_delta = if pressed { 1.0 } else { 0.0 }; true } 
-                    PhysicalKey::Code(KeyCode::ArrowRight) => { self.camera_yaw_delta = if pressed { -1.0 } else { 0.0 }; true }
-                    
-                    // **** MODIFIED Keyboard Pitch delta to fix inversion ****
-                    // To make ArrowUp look UP (increase pitch, assuming positive pitch is up):
-                    // If visual result of increasing pitch was DOWN, then to look UP, we need to DECREASE pitch.
-                    PhysicalKey::Code(KeyCode::ArrowUp) => { self.camera_pitch_delta = if pressed { -1.0 } else { 0.0 }; true } // Was 1.0
-                    PhysicalKey::Code(KeyCode::ArrowDown) => { self.camera_pitch_delta = if pressed { 1.0 } else { 0.0 }; true }  // Was -1.0
-                    
-                    _ => false,
-                }
-            }
-            WindowEvent::MouseInput { state, button, .. } => {
-                if self.is_focused && !self.cursor_grabbed && *state == ElementState::Pressed && *button == winit::event::MouseButton::Left {
-                    self.grab_cursor(window, true);
-                    return true; 
-                }
-                false 
-            }
             WindowEvent::Focused(focused) => {
                 self.is_focused = *focused;
-                if !*focused && self.cursor_grabbed { 
-                    self.grab_cursor(window, false);
+                // CameraController's handle_window_event already handles ungrabbing on focus loss
+                false // Let main loop also see it via set_focused if needed
+            }
+             WindowEvent::MouseInput { state, button, .. } => {
+                // This specific logic is for Egui or other UI interactions not related to camera grabbing.
+                // Camera grabbing on click is now handled by CameraController.
+                // If Egui didn't consume it, and controller didn't, then it's not handled here for now.
+                if !self.camera_controller.cursor_grabbed && *state == ElementState::Pressed && *button == winit::event::MouseButton::Left {
+                     // If the controller didn't handle it (e.g. because a UI element was clicked),
+                     // we might have app-specific logic here. But for now, if cursor is not grabbed,
+                     // left click is likely for UI. The controller handles grabbing if app has focus and cursor isn't grabbed.
                 }
                 false
             }
+            // Keyboard events for camera are now handled by CameraController.
+            // App-specific keyboard shortcuts (not camera related) could be here.
             _ => false,
         }
     }
 
-    pub fn handle_device_input(&mut self, event: &DeviceEvent, _window: &Window) {
-        if !self.cursor_grabbed { 
-            return;
-        }
-        match event {
-            DeviceEvent::MouseMotion { delta: (dx, dy) } => {
-                // Yaw is correct from previous step
-                self.camera.yaw -= *dx as f32 * self.mouse_sensitivity; 
-                
-                // **** MODIFIED Mouse Pitch to fix inversion ****
-                // Mouse Up (dy < 0) should make camera look UP (increase pitch).
-                // If visual result of increasing pitch was DOWN, then to look UP, we need to DECREASE pitch.
-                // The current mouse logic self.camera.pitch -= *dy * sens;
-                //   Mouse Up (dy < 0) => pitch -= (negative) => pitch INCREASES. This was causing look DOWN.
-                // To make Mouse Up look UP, we need pitch to DECREASE.
-                // So, if dy < 0 (mouse up), we should ADD dy (a negative number) to pitch.
-                self.camera.pitch += *dy as f32 * self.mouse_sensitivity; // Was -=
-                
-                self.camera.pitch = self.camera.pitch.clamp(
-                    -std::f32::consts::FRAC_PI_2 + 0.01, 
-                    std::f32::consts::FRAC_PI_2 - 0.01
-                );
-            }
-            DeviceEvent::MouseWheel { delta, .. } => {
-                if let MouseScrollDelta::LineDelta(_x, _y_scroll) = delta {
-                     // println!("Mouse Wheel Delta: {:.1}", _y_scroll);
-                }
-            }
-            _ => {}
-        }
+    pub fn handle_device_event(&mut self, event: &DeviceEvent, _window: &Window) {
+        // Delegate device events (like mouse motion for camera) to the camera controller
+        // The window parameter isn't strictly needed by the current controller.handle_device_event
+        self.camera_controller.handle_device_event(event);
     }
 }

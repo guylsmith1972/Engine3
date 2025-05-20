@@ -25,22 +25,32 @@ This project is a 3D graphics application built with Rust and `wgpu` that demons
 
 ## Project Structure
 
-The project is organized into several modules:
+The project is organized into several modules and libraries:
 
 * `src/main.rs`: Entry point of the application, sets up the event loop and initializes the `PolygonApp`.
-* `src/app.rs`: Contains the main application struct (`PolygonApp`), handles wgpu initialization, event processing, updates, and rendering calls.
-* `src/renderer.rs`: Manages the rendering pipeline, scene traversal logic for portal rendering, vertex/index buffer updates, and drawing commands.
-* `src/scene.rs`: Defines the structures for `Scene`, `Hull`, and `SceneSide` (which can be walls or portals), and includes a function to create a sample multi-room scene.
-* `src/camera.rs`: Implements the `Camera` struct, including methods for transforming points to camera space and projecting them to the screen.
-* `src/geometry.rs`: Defines basic geometric primitives like `Point2` and `ConvexPolygon`.
-* `src/intersection.rs`: Contains the `ConvexIntersection` struct and the implementation of the Sutherland-Hodgman algorithm for finding the intersection of two convex polygons (`find_intersection_into`).
-* `src/shader.rs`: Contains the WGSL shader source code for vertex and fragment shaders.
+* `src/app.rs`: Contains the main application struct (`PolygonApp`), handles wgpu initialization, event processing via `CameraController`, updates, and rendering calls.
 * `src/ui.rs`: Defines the user interface using `egui`, showing controls and information.
-* `src/vertex.rs`: Defines the `Vertex` struct used for rendering.
-* `src/lib.rs`: Library crate root, re-exporting modules.
-* `benches/intersection_benchmark.rs`: Performance benchmark for the `find_intersection_into` function.
-* `benches/generator.rs`: Provides `PolygonGenerator` for creating random convex polygons, used by benchmarks.
-* `src/reference.html`: An HTML/JavaScript reference implementation for 2D convex polygon intersection visualization.
+* `src/demo_scene.rs`: Contains logic to create a sample multi-room 3D scene using types from `engine_lib`.
+
+* **`src/engine_lib/`**: A library for core engine logic, excluding direct rendering.
+    * `lib.rs`: Exports modules of the `engine_lib`.
+    * `camera.rs`: Implements the `Camera` struct, including methods for transforming points and projection, but relies on `rendering_lib` for `Point2`.
+    * `controller.rs`: Implements `CameraController` for handling user input (keyboard/mouse) for camera control.
+    * `scene_types.rs`: Defines the structures for `Scene`, `Hull`, `SceneSide`, `Point3`, and `TraversalState`. It relies on `rendering_lib` for `ConvexPolygon`.
+
+* **`src/rendering_lib/`**: A library dedicated to rendering logic and 2D geometry operations.
+    * `lib.rs`: Exports modules of the `rendering_lib`.
+    * `renderer.rs`: Manages the WGPU rendering pipeline, scene traversal logic for portal rendering (using types from `engine_lib`), vertex/index buffer updates, and drawing commands.
+    * `geometry.rs`: Defines basic 2D geometric primitives like `Point2` and `ConvexPolygon`, and `MAX_VERTICES`.
+    * `intersection.rs`: Contains `ConvexIntersection` and the Sutherland-Hodgman algorithm for 2D convex polygon intersection.
+    * `shader.rs`: Contains the WGSL shader source code.
+    * `vertex.rs`: Defines the `Vertex` struct used for rendering.
+
+* `benches/`: Contains criterion benchmarks.
+    * `intersection_benchmark.rs`: Performance benchmark for the polygon intersection function.
+    * `generator.rs`: Utility for generating random convex polygons for benchmarks.
+
+* `references/sutherland_hodgman_intersection.html`: An HTML/JavaScript reference implementation for 2D convex polygon intersection visualization. (Assuming this path is correct, previously it was `src/reference.html`)
 
 ## Controls
 
