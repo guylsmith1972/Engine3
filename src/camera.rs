@@ -1,9 +1,7 @@
 // src/camera.rs
 
-use convex_polygon_intersection::geometry::Point2; // Ensure this line is present
+use convex_polygon_intersection::geometry::Point2;
 use crate::scene::Point3;
-// PI is not used in the current version of camera.rs, so the 'use' for it can be removed for now
-// use std::f32::consts::PI;
 
 #[derive(Debug)]
 pub struct Camera {
@@ -34,13 +32,7 @@ impl Camera {
         }
     }
 
-    pub fn project_to_screen(
-        &self,
-        world_point: &Point3,
-        screen_width: f32,
-        screen_height: f32,
-    ) -> Option<Point2> { // **** CORRECTED: Was crate::geometry::Point2 ****
-        // 1. Transform world point to camera space
+    pub fn transform_to_camera_space(&self, world_point: &Point3) -> Point3 {
         let cos_pitch = self.pitch.cos();
         let sin_pitch = self.pitch.sin();
         let cos_yaw = self.yaw.cos();
@@ -58,9 +50,44 @@ impl Camera {
         p_cam.y = y_rotated_pitch;
         p_cam.z = z_rotated_pitch;
 
-        if p_cam.z >= -self.znear {
+        p_cam
+    }
+
+    pub fn project_camera_space_to_screen(
+        &self,
+        p_cam: &Point3,
+        screen_width: f32,
+        screen_height: f32,
+    ) -> Option<Point2> {
+        // Near plane check (camera looks down its local -Z axis, points in front have p_cam.z < 0)
+        // Cull if p_cam.z is *behind or on* the near plane from the eye's perspective.
+        // We want to allow points ON the near plane if our clipper put them there.
+        // A point is "behind" if its z value in camera space is > -self.znear
+        // (i.e., less negative than -self.znear, or positive).
+        //
+        // **** MODIFIED CHECK ****
+        // Old: if p_cam.z >= -self.znear 
+        // New: Only discard if strictly behind the near plane.
+        //      Points on the near plane (p_cam.z == -self.znear) should be projectable.
+        if p_cam.z > -self.znear {  // Cull if z is greater (less negative / more positive) than -znear
             return None;
         }
+        // Optional: Add a very small epsilon if floating point issues persist with exact equality:
+        // if p_cam.z > -self.znear + 1e-6 { return None; }
+
+
+        if p_cam.z < -self.zfar { // Far plane check
+            return None;
+        }
+        
+        // Avoid division by zero or by a number very close to zero if p_cam.z is -self.znear
+        // and self.znear is extremely small, or if -p_cam.z itself is near zero.
+        // The check `p_cam.z > -self.znear` should already prevent `p_cam.z` from being positive or zero.
+        // It ensures `-p_cam.z` is at least `self.znear` (which is 0.1).
+        if -p_cam.z < 1e-6 { // Effectively checks if p_cam.z is too close to 0 from negative side
+            return None;
+        }
+
 
         let aspect_ratio = screen_width / screen_height;
         let focal_length_y = 1.0 / (self.fov_y_rad / 2.0).tan();
@@ -72,6 +99,16 @@ impl Camera {
         let screen_x = (ndc_x + 1.0) * 0.5 * screen_width;
         let screen_y = (1.0 - ndc_y) * 0.5 * screen_height;
 
-        Some(Point2::new(screen_x, screen_y)) // **** CORRECTED: Was crate::geometry::Point2::new ****
+        Some(Point2::new(screen_x, screen_y))
+    }
+
+    pub fn project_to_screen(
+        &self,
+        world_point: &Point3,
+        screen_width: f32,
+        screen_height: f32,
+    ) -> Option<Point2> {
+        let p_cam = self.transform_to_camera_space(world_point);
+        self.project_camera_space_to_screen(&p_cam, screen_width, screen_height)
     }
 }

@@ -3,16 +3,15 @@
 use wgpu;
 use std::collections::VecDeque;
 use bytemuck::{Pod, Zeroable};
-use wgpu::util::DeviceExt; // For create_buffer_init
+use wgpu::util::DeviceExt;
 
-use convex_polygon_intersection::vertex::Vertex; // Corrected path
+use convex_polygon_intersection::vertex::Vertex;
 use convex_polygon_intersection::geometry::{ConvexPolygon, Point2, MAX_VERTICES};
 use convex_polygon_intersection::intersection::ConvexIntersection;
-use crate::scene::{Scene, Point3, TraversalState, Hull, SceneSide}; // Hull, SceneSide, Point3 were previously warned as unused but are needed here. create_mvp_scene is not.
+use crate::scene::{Scene, Point3, TraversalState, Hull, SceneSide};
 use crate::camera::Camera;
 
 
-// Constants for buffer sizes
 const RENDERER_MAX_VERTICES: usize = MAX_VERTICES * 6 * 10; 
 const RENDERER_MAX_INDICES: usize = (MAX_VERTICES.saturating_sub(2)) * 3 * 6 * 10;
 
@@ -21,12 +20,68 @@ const RENDERER_MAX_INDICES: usize = (MAX_VERTICES.saturating_sub(2)) * 3 * 6 * 1
 struct ScreenDimensionsUniform {
     width: f32,
     height: f32,
-    // For WebGL/WebGPU, ensure this struct aligns to a multiple of 16 bytes if it's part of a larger struct array.
-    // For a single instance like this, two f32s (8 bytes) are often fine, but being explicit can help.
-    // Using vec2<f32> in shader and [f32;2] here, or explicit padding for wider compatibility.
-    // For now, keeping it simple as it usually works on native.
-    _padding1: f32, // Pad to 16 bytes
+    _padding1: f32,
     _padding2: f32,
+}
+
+// Helper function for 3D near-plane clipping (Sutherland-Hodgman for one plane)
+// Assumes polygon vertices are in camera space.
+// Near plane is z_cam = -camera_znear.
+// A point (x,y,z) is "inside" (visible) if z < -camera_znear.
+fn clip_polygon_near_plane_3d(
+    polygon_cam_space: &[Point3],
+    camera_znear: f32,
+) -> Vec<Point3> {
+    if polygon_cam_space.is_empty() {
+        return Vec::new();
+    }
+
+    let mut output_list = Vec::with_capacity(polygon_cam_space.len() + 1); // Max one extra vertex
+    let mut s = polygon_cam_space[polygon_cam_space.len() - 1]; // Start with the last vertex
+
+    for p in polygon_cam_space.iter() {
+        let s_is_inside = s.z < -camera_znear;
+        let p_is_inside = p.z < -camera_znear;
+
+        if s_is_inside && p_is_inside { // Case 1: Both inside, output P
+            output_list.push(*p);
+        } else if s_is_inside && !p_is_inside { // Case 2: S inside, P outside, output intersection
+            // Calculate intersection point I of edge SP with plane z = -znear
+            // I = S + t(P - S)
+            // I.z = S.z + t(P.z - S.z) = -camera_znear
+            // t = (-camera_znear - S.z) / (P.z - S.z)
+            if (p.z - s.z).abs() > 1e-6 { // Avoid division by zero if edge is parallel to plane
+                let t = (-camera_znear - s.z) / (p.z - s.z);
+                if t >= 0.0 && t <= 1.0 { // Intersection is within the segment
+                    let ix = s.x + t * (p.x - s.x);
+                    let iy = s.y + t * (p.y - s.y);
+                    output_list.push(Point3::new(ix, iy, -camera_znear));
+                } else if t < 0.0 && p_is_inside { // s is outside, p is inside, handled in next case (SHOULDN'T HAPPEN with current S,P logic)
+                     //This can happen if the segment crosses the plane beyond S, but p is inside.
+                     //It implies an issue or that P should have been the start of an exiting segment.
+                } else if t > 1.0 && s_is_inside { // s is inside, p is outside, segment crosses beyond p
+                    // This should mean the point -camera_znear is not between s.z and p.z, but this is checked by t conditions.
+                }
+
+            } else if s_is_inside { // Edge is parallel to plane and inside (or on plane)
+                // No intersection to add from this edge crossing, P will be handled next
+            }
+        } else if !s_is_inside && p_is_inside { // Case 3: S outside, P inside, output I then P
+            if (p.z - s.z).abs() > 1e-6 {
+                let t = (-camera_znear - s.z) / (p.z - s.z);
+                 if t >= 0.0 && t <= 1.0 { // Intersection is within the segment
+                    let ix = s.x + t * (p.x - s.x);
+                    let iy = s.y + t * (p.y - s.y);
+                    output_list.push(Point3::new(ix, iy, -camera_znear));
+                }
+            }
+            output_list.push(*p); // P is inside
+        }
+        // Case 4: Both S and P are outside, output nothing
+
+        s = *p; // Advance S to P for the next edge
+    }
+    output_list
 }
 
 
@@ -51,11 +106,10 @@ impl Renderer {
         initial_screen_height: f32,
     ) -> Self {
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Renderer Shader Module"), // Unique label
+            label: Some("Renderer Shader Module"),
             source: wgpu::ShaderSource::Wgsl(shader_source.into()),
         });
 
-        // Uniform Buffer for screen dimensions
         let screen_uniform_data = ScreenDimensionsUniform {
             width: initial_screen_width,
             height: initial_screen_height,
@@ -94,7 +148,7 @@ impl Renderer {
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Renderer Pipeline Layout"),
-                bind_group_layouts: &[&screen_bind_group_layout], // Use BGL for screen dims
+                bind_group_layouts: &[&screen_bind_group_layout],
                 push_constant_ranges: &[],
             });
 
@@ -104,7 +158,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &shader_module,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()], // From library's Vertex struct
+                buffers: &[Vertex::desc()],
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader_module,
@@ -163,9 +217,7 @@ impl Renderer {
         polygon_2d: &ConvexPolygon, 
         color: [f32; 4],
     ) {
-        if polygon_2d.count() < 3 {
-            return;
-        }
+        if polygon_2d.count() < 3 { return; }
         let start_vertex_index = self.frame_vertices.len() as u16;
         for point in polygon_2d.vertices() {
             self.frame_vertices.push(Vertex::new([point.x, point.y], color));
@@ -179,7 +231,7 @@ impl Renderer {
 
     pub fn render_scene(
         &mut self,
-        _device: &wgpu::Device, // Not directly used if resources are pre-allocated
+        _device: &wgpu::Device,
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         output_view: &wgpu::TextureView,
@@ -189,7 +241,6 @@ impl Renderer {
         screen_height: f32,
         clear_color: wgpu::Color,
     ) {
-        // Update uniform buffer with current screen dimensions
         let screen_uniform_data = ScreenDimensionsUniform {
             width: screen_width,
             height: screen_height,
@@ -201,7 +252,6 @@ impl Renderer {
         self.frame_vertices.clear();
         self.frame_indices.clear();
 
-        // --- Portal Traversal Logic ---
         let mut traversal_queue: VecDeque<TraversalState> = VecDeque::new();
         let initial_clip_points = [
             Point2::new(0.0, 0.0), Point2::new(screen_width, 0.0),
@@ -218,9 +268,7 @@ impl Renderer {
         let mut processed_hulls_this_frame: std::collections::HashSet<usize> = std::collections::HashSet::new();
         
         while let Some(current_state) = traversal_queue.pop_front() {
-            if processed_hulls_this_frame.contains(&current_state.hull_id) && traversal_queue.len() > scene.hulls.len() * 2 { 
-                 continue; 
-            }
+            if processed_hulls_this_frame.contains(&current_state.hull_id) && traversal_queue.len() > scene.hulls.len() * 2 { continue; }
             processed_hulls_this_frame.insert(current_state.hull_id);
 
             let current_hull = match scene.hulls.get(current_state.hull_id) { Some(h) => h, None => continue };
@@ -230,25 +278,45 @@ impl Renderer {
                 if side.vertices_3d.is_empty() { continue; }
                 let point_on_side = side.vertices_3d[0];
                 let cam_to_side_vec = point_on_side.sub(&camera.position);
-                
                 if cam_to_side_vec.dot(&side.normal) <= 1e-3 { continue; } 
 
-                let mut projected_points_2d: Vec<Point2> = Vec::with_capacity(side.vertices_3d.len());
-                let mut all_points_valid = true;
-                for v3d in &side.vertices_3d {
-                    if let Some(p2d) = camera.project_to_screen(v3d, screen_width, screen_height) {
-                        projected_points_2d.push(p2d);
-                    } else { all_points_valid = false; break; }
+                // 1. Transform side vertices to camera space
+                let mut vertices_cam_space: Vec<Point3> = Vec::with_capacity(side.vertices_3d.len());
+                for v_world in &side.vertices_3d {
+                    vertices_cam_space.push(camera.transform_to_camera_space(v_world));
                 }
-                if !all_points_valid || projected_points_2d.len() < 3 { continue; }
-                
-                let p_projected = ConvexPolygon::from_points(&projected_points_2d);
-                if p_projected.count() < 3 { continue; }
 
+                // 2. Clip polygon against near plane in camera space
+                let clipped_vertices_cam_space = clip_polygon_near_plane_3d(&vertices_cam_space, camera.znear);
+
+                if clipped_vertices_cam_space.len() < 3 { continue; }
+
+                // 3. Project clipped camera-space vertices to 2D screen space
+                let mut projected_points_2d: Vec<Point2> = Vec::with_capacity(clipped_vertices_cam_space.len());
+                // No need for all_points_valid check here, as clipping should ensure they are projectable
+                for p_cam in &clipped_vertices_cam_space {
+                    // The project_camera_space_to_screen itself does a znear check.
+                    // Since we just clipped to be in front of znear, this should always pass,
+                    // but it's a safe check.
+                    if let Some(p2d) = camera.project_camera_space_to_screen(p_cam, screen_width, screen_height) {
+                        projected_points_2d.push(p2d);
+                    } else {
+                        // This case should ideally not happen if clipping is correct and znear values match.
+                        // If it does, it might indicate very close points or precision issues.
+                        // For safety, we could break or log, but expect it to work.
+                    }
+                }
+                
+                if projected_points_2d.len() < 3 { continue; } // Should not happen if clipped_vertices_cam_space >= 3
+                
+                let p_projected_clipped = ConvexPolygon::from_points(&projected_points_2d);
+                if p_projected_clipped.count() < 3 { continue; }
+
+                // 4. Proceed with 2D screen-space portal/wall logic
                 if side.is_portal {
                     if let Some(next_hull_id) = side.connected_hull_id {
                         let mut v_next = ConvexPolygon::new();
-                        ConvexIntersection::find_intersection_into(v_current, &p_projected, &mut v_next);
+                        ConvexIntersection::find_intersection_into(v_current, &p_projected_clipped, &mut v_next);
                         if v_next.count() >= 3 {
                             if !processed_hulls_this_frame.contains(&next_hull_id) || !traversal_queue.iter().any(|s| s.hull_id == next_hull_id && s.screen_space_clip_polygon.vertices() == v_next.vertices()){
                                 traversal_queue.push_back(TraversalState {
@@ -258,18 +326,18 @@ impl Renderer {
                         }
                     }
                 } else { 
-                    let mut clipped_wall_poly = ConvexPolygon::new();
-                    ConvexIntersection::find_intersection_into(&p_projected, v_current, &mut clipped_wall_poly);
-                    if clipped_wall_poly.count() >= 3 {
-                        self.add_polygon_to_frame(&clipped_wall_poly, side.color);
+                    let mut final_clipped_wall_poly = ConvexPolygon::new();
+                    ConvexIntersection::find_intersection_into(&p_projected_clipped, v_current, &mut final_clipped_wall_poly);
+                    if final_clipped_wall_poly.count() >= 3 {
+                        self.add_polygon_to_frame(&final_clipped_wall_poly, side.color);
                     }
                 }
             }
         }
-        // --- End Portal Traversal Logic ---
 
         if !self.frame_vertices.is_empty() && !self.frame_indices.is_empty() {
-            if (self.frame_vertices.len() * std::mem::size_of::<Vertex>()) as u64 > self.vertex_buffer.size() ||
+            // Buffer writing logic... (remains the same)
+             if (self.frame_vertices.len() * std::mem::size_of::<Vertex>()) as u64 > self.vertex_buffer.size() ||
                (self.frame_indices.len() * std::mem::size_of::<u16>()) as u64 > self.index_buffer.size() {
                 eprintln!("Renderer Warning: Frame data exceeds pre-allocated buffer capacity.");
             }
@@ -293,7 +361,7 @@ impl Renderer {
 
             if !self.frame_vertices.is_empty() && !self.frame_indices.is_empty() {
                 render_pass.set_pipeline(&self.render_pipeline);
-                render_pass.set_bind_group(0, &self.screen_bind_group, &[]); // Set the screen dimensions uniform
+                render_pass.set_bind_group(0, &self.screen_bind_group, &[]);
                 
                 let vertex_buffer_slice_size = (self.frame_vertices.len() * std::mem::size_of::<Vertex>()) as u64;
                 let effective_indices_count = self.frame_indices.len();
