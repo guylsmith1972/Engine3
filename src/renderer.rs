@@ -8,7 +8,7 @@ use wgpu::util::DeviceExt;
 use convex_polygon_intersection::vertex::Vertex;
 use convex_polygon_intersection::geometry::{ConvexPolygon, Point2, MAX_VERTICES};
 use convex_polygon_intersection::intersection::ConvexIntersection;
-use crate::scene::{Scene, Point3, TraversalState, Hull, SceneSide};
+use crate::scene::{Scene, Point3, TraversalState};
 use crate::camera::Camera;
 
 

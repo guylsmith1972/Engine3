@@ -1,12 +1,11 @@
 // src/main.rs
 
-// Modules specific to this binary application
 pub mod app;
 pub mod shader;
 pub mod ui;
 pub mod scene;
 pub mod camera;
-pub mod renderer; // Ensure this line is present and public
+pub mod renderer;
 
 use winit::{
     event::{Event, WindowEvent},
@@ -23,7 +22,7 @@ pub async fn run() {
     let event_loop = EventLoop::new().unwrap();
     let window = std::sync::Arc::new(
         WindowBuilder::new()
-            .with_title("Portal Rendering - Encapsulated Renderer") 
+            .with_title("Portal Rendering - Enhanced Controls") 
             .with_inner_size(winit::dpi::LogicalSize::new(1024, 768)) 
             .build(&event_loop)
             .unwrap(),
@@ -41,15 +40,24 @@ pub async fn run() {
                     ref event,
                     window_id,
                 } if window_id == window.id() => {
+                    // Pass window event to app_state.handle_input
+                    // It also handles egui events
                     if !app_state.handle_input(event, &window) {
                         match event {
                             WindowEvent::CloseRequested => target.exit(),
                             WindowEvent::Resized(physical_size) => {
                                 app_state.resize(*physical_size);
                             }
+                            WindowEvent::Focused(is_focused) => {
+                                app_state.set_focused(*is_focused);
+                            }
                             _ => {}
                         }
                     }
+                }
+                // Handle raw mouse motion for camera look
+                Event::DeviceEvent { event: winit_device_event, .. } => { // Use winit::event::DeviceEvent here
+                    app_state.handle_device_input(&winit_device_event, &window);
                 }
                 Event::AboutToWait => { 
                     let now = std::time::Instant::now();
