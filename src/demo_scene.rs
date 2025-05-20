@@ -1,69 +1,13 @@
-// src/scene.rs
+// src/demo_scene.rs
 
-use convex_polygon_intersection::geometry::{ConvexPolygon};
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Point3 {
-    pub x: f32,
-    pub y: f32,
-    pub z: f32,
-}
-
-impl Point3 {
-    pub fn new(x: f32, y: f32, z: f32) -> Self { Self { x, y, z } }
-    pub fn sub(&self, other: &Point3) -> Point3 { Point3::new(self.x - other.x, self.y - other.y, self.z - other.z) }
-    pub fn dot(&self, other: &Point3) -> f32 { self.x * other.x + self.y * other.y + self.z * other.z }
-    pub fn cross(&self, other: &Point3) -> Point3 {
-        Point3::new(
-            self.y * other.z - self.z * other.y,
-            self.z * other.x - self.x * other.z,
-            self.x * other.y - self.y * other.x,
-        )
-    }
-    pub fn length(&self) -> f32 { (self.x * self.x + self.y * self.y + self.z * self.z).sqrt() }
-    pub fn normalize(&self) -> Point3 {
-        let l = self.length();
-        if l == 0.0 { Point3::new(0.0, 0.0, 0.0) } 
-        else { Point3::new(self.x / l, self.y / l, self.z / l) }
-    }
-    pub fn add(&self, other: &Point3) -> Point3 { Point3::new(self.x + other.x, self.y + other.y, self.z + other.z) }
-    pub fn mul_scalar(&self, scalar: f32) -> Point3 { Point3::new(self.x * scalar, self.y * scalar, self.z * scalar) }
-}
-
-#[derive(Clone, Debug)]
-pub struct SceneSide {
-    pub vertices_3d: Vec<Point3>,
-    pub normal: Point3,
-    pub is_portal: bool,
-    pub connected_hull_id: Option<usize>,
-    pub color: [f32; 4],
-}
-
-impl SceneSide {
-    pub fn calculate_normal(vertices: &[Point3]) -> Point3 {
-        if vertices.len() < 3 { return Point3::new(0.0, 0.0, 1.0); }
-        let v0 = vertices[0]; let v1 = vertices[1]; let v2 = vertices[2];
-        let edge1 = v1.sub(&v0); let edge2 = v2.sub(&v0);
-        edge1.cross(&edge2).normalize()
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Hull {
-    pub id: usize,
-    pub sides: Vec<SceneSide>,
-}
-
-#[derive(Debug)]
-pub struct Scene {
-    pub hulls: Vec<Hull>,
-}
-
-#[derive(Clone)]
-pub struct TraversalState {
-    pub hull_id: usize,
-    pub screen_space_clip_polygon: ConvexPolygon,
-}
+// You will need to import the types from your new scene_types module
+// For example:
+// use crate::engine_lib::scene_types::{Scene, Hull, SceneSide, Point3};
+// Or if engine_lib is a separate crate:
+// use engine_lib::scene_types::{Scene, Hull, SceneSide, Point3};
+// This needs to be adjusted based on your final project structure.
+// I'll use a placeholder for now.
+use engine_lib::scene_types::{Scene, Hull, SceneSide, Point3}; // Placeholder: Adjust this path!
 
 pub fn create_mvp_scene() -> Scene {
     let mut hulls = Vec::new();
@@ -76,7 +20,7 @@ pub fn create_mvp_scene() -> Scene {
 
     let room1_center = Point3::new(0.0, 0.0, -3.0);
     let room1_half_size = 1.5;
-    let r1_v = [ /* ... vertex definitions remain the same ... */
+    let r1_v = [ 
         Point3::new(room1_center.x - room1_half_size, room1_center.y - room1_half_size, room1_center.z - room1_half_size),
         Point3::new(room1_center.x + room1_half_size, room1_center.y - room1_half_size, room1_center.z - room1_half_size),
         Point3::new(room1_center.x + room1_half_size, room1_center.y + room1_half_size, room1_center.z - room1_half_size),
@@ -121,10 +65,9 @@ pub fn create_mvp_scene() -> Scene {
     ];
     hulls.push(Hull { id: 0, sides: room1_sides });
 
-    // Corrected room2_center.z calculation
     let room2_center = Point3::new(0.0, 0.0, room1_center.z + room1_half_size * 2.0); 
     let room2_half_size = 1.5;
-    let r2_v = [ /* ... vertex definitions remain the same ... */
+    let r2_v = [
         Point3::new(room2_center.x - room2_half_size, room2_center.y - room2_half_size, room2_center.z - room2_half_size),
         Point3::new(room2_center.x + room2_half_size, room2_center.y - room2_half_size, room2_center.z - room2_half_size),
         Point3::new(room2_center.x + room2_half_size, room2_center.y + room2_half_size, room2_center.z - room2_half_size),

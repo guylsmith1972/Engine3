@@ -1,21 +1,26 @@
 [package]
-name = "convex_polygon_intersection"
+name = "engine3_app" # Or your binary crate name
 version = "0.1.0"
 edition = "2021"
 
+# [[bin]] # You might have this if your main.rs is not src/main.rs
+# name = "engine3_app"
+# path = "src/main.rs"
+
 [dependencies]
-wgpu = "0.19"
-winit = "0.29"
-bytemuck = { version = "1.14", features = ["derive"] }
-cgmath = "0.18"
-rand = "0.8"
-pollster = "0.3"
+winit = "0.29" # Check for latest version
+wgpu = "0.19"  # Check for latest version
 env_logger = "0.10"
-tokio = { version = "1.0", features = ["full"] }
 egui = "0.27"
 egui-wgpu = "0.27"
 egui-winit = "0.27"
-criterion = "0.5" # Check for the latest version
+bytemuck = { version = "1.12", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+# approx = "0.5.1" # If needed by geometry/intersection for comparisons
+
+# Local library dependencies
+engine_lib = { path = "src/engine_lib" }
+rendering_lib = { path = "src/rendering_lib" }
 
 [features]
 default = []
