@@ -7,12 +7,12 @@ use winit::{
 };
 
 // Library items
-use convex_polygon_intersection::geometry::ConvexPolygon; // Only for egui build_ui dummy args
+use convex_polygon_intersection::geometry::ConvexPolygon;
 
 // Local modules
 use crate::ui::build_ui;
-use crate::shader::WGSL_SHADER_SOURCE; // Source passed to Renderer
-use crate::scene::{Scene, Point3, create_mvp_scene}; // TraversalState no longer needed by App
+use crate::shader::WGSL_SHADER_SOURCE;
+use crate::scene::{Scene, Point3, create_mvp_scene}; // TraversalState is now internal to Renderer
 use crate::camera::Camera;
 use crate::renderer::Renderer;
 
@@ -29,10 +29,6 @@ pub struct PolygonApp {
     scene: Scene,
     camera: Camera,
     
-    // frame_vertices and frame_indices are now internal to Renderer
-    // frame_vertices: Vec<Vertex>,
-    // frame_indices: Vec<u16>,
-
     egui_ctx: egui::Context,
     egui_state: egui_winit::State,
     egui_renderer: egui_wgpu::Renderer,
@@ -96,7 +92,13 @@ impl PolygonApp {
         };
         surface.configure(&device, &config);
 
-        let renderer = Renderer::new(&device, config.format, WGSL_SHADER_SOURCE);
+        let renderer = Renderer::new(
+            &device, 
+            config.format, 
+            WGSL_SHADER_SOURCE,
+            size.width as f32,  // Pass initial width
+            size.height as f32, // Pass initial height
+        );
 
         let egui_ctx = egui::Context::default();
         let egui_state = egui_winit::State::new(
@@ -141,15 +143,14 @@ impl PolygonApp {
         self.size
     }
     
-    // add_polygon_to_frame is now a method of Renderer
-
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             self.size = new_size;
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
-            // self.renderer.resize(new_size.width, new_size.height); // If renderer needs explicit resize
+            // The renderer's uniform buffer is updated each frame in render_scene,
+            // so no explicit renderer.resize() is strictly needed for just screen dims.
         }
     }
 
@@ -175,16 +176,12 @@ impl PolygonApp {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        // frame_vertices and frame_indices are now managed by the renderer.
-        // App no longer clears or populates them directly here.
-
         let mut encoder = self.device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Main Command Encoder"),
         });
 
-        // Call the renderer to perform all scene rendering, including visibility and drawing
         self.renderer.render_scene(
-            &self.device,
+            &self.device, // Pass device for potential future use by renderer if it needs to create temp resources
             &self.queue,
             &mut encoder,
             &view,
@@ -192,7 +189,7 @@ impl PolygonApp {
             &self.camera,
             self.size.width as f32,
             self.size.height as f32,
-            wgpu::Color { r: 0.05, g: 0.05, b: 0.1, a: 1.0 }, // Clear color
+            wgpu::Color { r: 0.05, g: 0.05, b: 0.1, a: 1.0 }, 
         );
 
         // Egui rendering

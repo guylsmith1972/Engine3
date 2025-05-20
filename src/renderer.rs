@@ -2,25 +2,44 @@
 
 use wgpu;
 use std::collections::VecDeque;
+use bytemuck::{Pod, Zeroable};
+use wgpu::util::DeviceExt; // For create_buffer_init
 
-use crate::scene::{Scene, TraversalState};
-use crate::camera::Camera;
+use convex_polygon_intersection::vertex::Vertex; // Corrected path
 use convex_polygon_intersection::geometry::{ConvexPolygon, Point2, MAX_VERTICES};
 use convex_polygon_intersection::intersection::ConvexIntersection;
-use convex_polygon_intersection::vertex::Vertex;
+use crate::scene::{Scene, Point3, TraversalState, Hull, SceneSide}; // Hull, SceneSide, Point3 were previously warned as unused but are needed here. create_mvp_scene is not.
+use crate::camera::Camera;
+
 
 // Constants for buffer sizes
-const RENDERER_MAX_VERTICES: usize = MAX_VERTICES * 6 * 10; // Max verts per polygon * max sides * max hulls
+const RENDERER_MAX_VERTICES: usize = MAX_VERTICES * 6 * 10; 
 const RENDERER_MAX_INDICES: usize = (MAX_VERTICES.saturating_sub(2)) * 3 * 6 * 10;
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+struct ScreenDimensionsUniform {
+    width: f32,
+    height: f32,
+    // For WebGL/WebGPU, ensure this struct aligns to a multiple of 16 bytes if it's part of a larger struct array.
+    // For a single instance like this, two f32s (8 bytes) are often fine, but being explicit can help.
+    // Using vec2<f32> in shader and [f32;2] here, or explicit padding for wider compatibility.
+    // For now, keeping it simple as it usually works on native.
+    _padding1: f32, // Pad to 16 bytes
+    _padding2: f32,
+}
+
 
 pub struct Renderer {
     render_pipeline: wgpu::RenderPipeline,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     
-    // Internal buffers for accumulating geometry per frame
     frame_vertices: Vec<Vertex>,
     frame_indices: Vec<u16>,
+
+    screen_uniform_buffer: wgpu::Buffer,
+    screen_bind_group: wgpu::BindGroup,
 }
 
 impl Renderer {
@@ -28,16 +47,54 @@ impl Renderer {
         device: &wgpu::Device,
         surface_format: wgpu::TextureFormat,
         shader_source: &str,
+        initial_screen_width: f32,
+        initial_screen_height: f32,
     ) -> Self {
         let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Renderer Shader"),
+            label: Some("Renderer Shader Module"), // Unique label
             source: wgpu::ShaderSource::Wgsl(shader_source.into()),
+        });
+
+        // Uniform Buffer for screen dimensions
+        let screen_uniform_data = ScreenDimensionsUniform {
+            width: initial_screen_width,
+            height: initial_screen_height,
+            _padding1: 0.0,
+            _padding2: 0.0,
+        };
+        let screen_uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Screen Dimensions Uniform Buffer"),
+            contents: bytemuck::bytes_of(&screen_uniform_data),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        });
+
+        let screen_bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None, 
+                },
+                count: None,
+            }],
+            label: Some("screen_dimensions_bind_group_layout"),
+        });
+
+        let screen_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            layout: &screen_bind_group_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: screen_uniform_buffer.as_entire_binding(),
+            }],
+            label: Some("screen_dimensions_bind_group"),
         });
 
         let render_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Renderer Pipeline Layout"),
-                bind_group_layouts: &[],
+                bind_group_layouts: &[&screen_bind_group_layout], // Use BGL for screen dims
                 push_constant_ranges: &[],
             });
 
@@ -47,7 +104,7 @@ impl Renderer {
             vertex: wgpu::VertexState {
                 module: &shader_module,
                 entry_point: "vs_main",
-                buffers: &[Vertex::desc()],
+                buffers: &[Vertex::desc()], // From library's Vertex struct
             },
             fragment: Some(wgpu::FragmentState {
                 module: &shader_module,
@@ -77,14 +134,14 @@ impl Renderer {
         });
 
         let vertex_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Renderer Vertex Buffer"),
+            label: Some("Scene Vertex Buffer"),
             size: (RENDERER_MAX_VERTICES * std::mem::size_of::<Vertex>()) as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
 
         let index_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("Renderer Index Buffer"),
+            label: Some("Scene Index Buffer"),
             size: (RENDERER_MAX_INDICES * std::mem::size_of::<u16>()) as u64,
             usage: wgpu::BufferUsages::INDEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
@@ -96,11 +153,13 @@ impl Renderer {
             index_buffer,
             frame_vertices: Vec::with_capacity(RENDERER_MAX_VERTICES),
             frame_indices: Vec::with_capacity(RENDERER_MAX_INDICES),
+            screen_uniform_buffer,
+            screen_bind_group,
         }
     }
 
     fn add_polygon_to_frame(
-        &mut self, // Now a method of Renderer
+        &mut self,
         polygon_2d: &ConvexPolygon, 
         color: [f32; 4],
     ) {
@@ -119,8 +178,8 @@ impl Renderer {
     }
 
     pub fn render_scene(
-        &mut self, // Needs mutable access to update frame_vertices/indices
-        _device: &wgpu::Device,
+        &mut self,
+        _device: &wgpu::Device, // Not directly used if resources are pre-allocated
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         output_view: &wgpu::TextureView,
@@ -130,17 +189,26 @@ impl Renderer {
         screen_height: f32,
         clear_color: wgpu::Color,
     ) {
+        // Update uniform buffer with current screen dimensions
+        let screen_uniform_data = ScreenDimensionsUniform {
+            width: screen_width,
+            height: screen_height,
+            _padding1: 0.0,
+            _padding2: 0.0,
+        };
+        queue.write_buffer(&self.screen_uniform_buffer, 0, bytemuck::bytes_of(&screen_uniform_data));
+
         self.frame_vertices.clear();
         self.frame_indices.clear();
 
-        // --- Portal Traversal Logic (MOVED INTO RENDERER) ---
+        // --- Portal Traversal Logic ---
         let mut traversal_queue: VecDeque<TraversalState> = VecDeque::new();
         let initial_clip_points = [
             Point2::new(0.0, 0.0), Point2::new(screen_width, 0.0),
             Point2::new(screen_width, screen_height), Point2::new(0.0, screen_height),
         ];
         let initial_clip_polygon = ConvexPolygon::from_points(&initial_clip_points);
-        let start_hull_id = 0; // TODO: Determine start hull based on camera position
+        let start_hull_id = 0; 
 
         if !scene.hulls.is_empty() {
              traversal_queue.push_back(TraversalState {
@@ -150,7 +218,6 @@ impl Renderer {
         let mut processed_hulls_this_frame: std::collections::HashSet<usize> = std::collections::HashSet::new();
         
         while let Some(current_state) = traversal_queue.pop_front() {
-            // Basic cycle/redundancy check (can be improved)
             if processed_hulls_this_frame.contains(&current_state.hull_id) && traversal_queue.len() > scene.hulls.len() * 2 { 
                  continue; 
             }
@@ -164,7 +231,7 @@ impl Renderer {
                 let point_on_side = side.vertices_3d[0];
                 let cam_to_side_vec = point_on_side.sub(&camera.position);
                 
-                if cam_to_side_vec.dot(&side.normal) <= 1e-3 { continue; } // Back-face CULL
+                if cam_to_side_vec.dot(&side.normal) <= 1e-3 { continue; } 
 
                 let mut projected_points_2d: Vec<Point2> = Vec::with_capacity(side.vertices_3d.len());
                 let mut all_points_valid = true;
@@ -183,7 +250,6 @@ impl Renderer {
                         let mut v_next = ConvexPolygon::new();
                         ConvexIntersection::find_intersection_into(v_current, &p_projected, &mut v_next);
                         if v_next.count() >= 3 {
-                             // A more robust check against re-queuing might involve clip polygon comparison
                             if !processed_hulls_this_frame.contains(&next_hull_id) || !traversal_queue.iter().any(|s| s.hull_id == next_hull_id && s.screen_space_clip_polygon.vertices() == v_next.vertices()){
                                 traversal_queue.push_back(TraversalState {
                                     hull_id: next_hull_id, screen_space_clip_polygon: v_next,
@@ -205,7 +271,7 @@ impl Renderer {
         if !self.frame_vertices.is_empty() && !self.frame_indices.is_empty() {
             if (self.frame_vertices.len() * std::mem::size_of::<Vertex>()) as u64 > self.vertex_buffer.size() ||
                (self.frame_indices.len() * std::mem::size_of::<u16>()) as u64 > self.index_buffer.size() {
-                eprintln!("Renderer Warning: Frame data exceeds buffer capacity.");
+                eprintln!("Renderer Warning: Frame data exceeds pre-allocated buffer capacity.");
             }
             
             queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.frame_vertices));
@@ -227,6 +293,8 @@ impl Renderer {
 
             if !self.frame_vertices.is_empty() && !self.frame_indices.is_empty() {
                 render_pass.set_pipeline(&self.render_pipeline);
+                render_pass.set_bind_group(0, &self.screen_bind_group, &[]); // Set the screen dimensions uniform
+                
                 let vertex_buffer_slice_size = (self.frame_vertices.len() * std::mem::size_of::<Vertex>()) as u64;
                 let effective_indices_count = self.frame_indices.len();
                 let index_buffer_slice_size = if self.frame_indices.len() % 2 == 1 {
