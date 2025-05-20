@@ -6,6 +6,7 @@ pub mod shader;
 pub mod ui;
 pub mod scene;
 pub mod camera;
+pub mod renderer; // Ensure this line is present and public
 
 use winit::{
     event::{Event, WindowEvent},
@@ -13,17 +14,17 @@ use winit::{
     window::WindowBuilder,
 };
 
-use app::PolygonApp; // Correctly refers to PolygonApp in app.rs
+use app::PolygonApp;
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
-    env_logger::init(); // Consider `tracing_subscriber` for more advanced logging
+    env_logger::init(); 
 
     let event_loop = EventLoop::new().unwrap();
     let window = std::sync::Arc::new(
         WindowBuilder::new()
-            .with_title("Portal Rendering MVP - Rust") // Updated title
-            .with_inner_size(winit::dpi::LogicalSize::new(1024, 768)) // Slightly larger default
+            .with_title("Portal Rendering - Encapsulated Renderer") 
+            .with_inner_size(winit::dpi::LogicalSize::new(1024, 768)) 
             .build(&event_loop)
             .unwrap(),
     );
@@ -33,7 +34,6 @@ pub async fn run() {
 
     event_loop
         .run(move |event, target| {
-            // Poll continuously for smoother animation/camera updates
             target.set_control_flow(ControlFlow::Poll); 
 
             match event {
@@ -47,17 +47,16 @@ pub async fn run() {
                             WindowEvent::Resized(physical_size) => {
                                 app_state.resize(*physical_size);
                             }
-                            // RedrawRequested is handled by Event::AboutToWait for continuous rendering
                             _ => {}
                         }
                     }
                 }
-                Event::AboutToWait => { // Equivalent to RedrawRequested for continuous loop
+                Event::AboutToWait => { 
                     let now = std::time::Instant::now();
                     let dt = (now - last_time).as_secs_f32();
                     last_time = now;
 
-                    app_state.update(dt); // Update camera and other state
+                    app_state.update(dt); 
                     match app_state.render(&window) {
                         Ok(_) => {}
                         Err(wgpu::SurfaceError::Lost) => app_state.resize(app_state.get_size()),
@@ -67,7 +66,6 @@ pub async fn run() {
                         }
                         Err(e) => eprintln!("Surface error: {:?}", e),
                     }
-                    // Request redraw for next frame if not exiting
                     if !target.exiting() {
                         window.request_redraw();
                     }

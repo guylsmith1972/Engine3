@@ -1,7 +1,6 @@
 // src/scene.rs
 
-use convex_polygon_intersection::geometry::{ConvexPolygon, Point2, MAX_VERTICES};
-use convex_polygon_intersection::intersection::ConvexIntersection;
+use convex_polygon_intersection::geometry::{ConvexPolygon};
 
 
 #[derive(Clone, Copy, Debug, PartialEq)]
