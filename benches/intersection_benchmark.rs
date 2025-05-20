@@ -1,7 +1,7 @@
 // benches/intersection_benchmark.rs
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use convex_polygon_intersection::geometry::{ConvexPolygon, Point2, MAX_VERTICES};
+use convex_polygon_intersection::geometry::{ConvexPolygon, MAX_VERTICES};
 use convex_polygon_intersection::intersection::ConvexIntersection;
 use rand::Rng;
 

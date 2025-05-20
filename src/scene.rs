@@ -1,6 +1,6 @@
 // src/scene.rs
 
-use convex_polygon_intersection::geometry::{ConvexPolygon, Point2};
+use convex_polygon_intersection::geometry::{ConvexPolygon};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Point3 {
@@ -96,12 +96,12 @@ pub fn create_mvp_scene() -> Scene {
         SceneSide { // Left Wall (-X side of room)
             vertices_3d: vec![r1_v[0], r1_v[4], r1_v[7], r1_v[3]], 
             normal: Point3::new(-1.0, 0.0, 0.0), is_portal: false, connected_hull_id: None, 
-            color: LEFT_WALL_COLOR, // **** MODIFIED ****
+            color: LEFT_WALL_COLOR,
         },
         SceneSide { // Right Wall (+X side of room)
             vertices_3d: vec![r1_v[5], r1_v[1], r1_v[2], r1_v[6]], 
             normal: Point3::new(1.0, 0.0, 0.0), is_portal: false, connected_hull_id: None, 
-            color: RIGHT_WALL_COLOR, // **** MODIFIED ****
+            color: RIGHT_WALL_COLOR,
         },
         SceneSide { // Bottom Wall (Floor)
             vertices_3d: vec![r1_v[4], r1_v[0], r1_v[1], r1_v[5]], 
@@ -121,7 +121,8 @@ pub fn create_mvp_scene() -> Scene {
     ];
     hulls.push(Hull { id: 0, sides: room1_sides });
 
-    let room2_center = Point3::new(0.0, 0.0, room1_center.z + room1_half_size * 2.0 + 0.1);
+    // Corrected room2_center.z calculation
+    let room2_center = Point3::new(0.0, 0.0, room1_center.z + room1_half_size * 2.0); 
     let room2_half_size = 1.5;
     let r2_v = [ /* ... vertex definitions remain the same ... */
         Point3::new(room2_center.x - room2_half_size, room2_center.y - room2_half_size, room2_center.z - room2_half_size),
@@ -148,12 +149,12 @@ pub fn create_mvp_scene() -> Scene {
         SceneSide { // Left Wall (-X side of room)
             vertices_3d: vec![r2_v[0], r2_v[4], r2_v[7], r2_v[3]],
             normal: Point3::new(-1.0, 0.0, 0.0), is_portal: false, connected_hull_id: None, 
-            color: LEFT_WALL_COLOR, // **** MODIFIED ****
+            color: LEFT_WALL_COLOR,
         },
         SceneSide { // Right Wall (+X side of room)
             vertices_3d: vec![r2_v[5], r2_v[1], r2_v[2], r2_v[6]],
             normal: Point3::new(1.0, 0.0, 0.0), is_portal: false, connected_hull_id: None, 
-            color: RIGHT_WALL_COLOR, // **** MODIFIED ****
+            color: RIGHT_WALL_COLOR,
         },
          SceneSide { // Bottom Wall (Floor)
             vertices_3d: vec![r2_v[4], r2_v[0], r2_v[1], r2_v[5]],

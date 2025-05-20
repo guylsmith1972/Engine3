@@ -7,7 +7,7 @@ use winit::{
 };
 
 // Library items
-use convex_polygon_intersection::geometry::ConvexPolygon;
+//use convex_polygon_intersection::geometry::ConvexPolygon;
 
 // Local modules
 use crate::ui::build_ui;
