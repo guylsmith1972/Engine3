@@ -5,7 +5,10 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, CursorGrabMode},
 };
-use glam::{Mat4, Vec3, Vec4Swizzles}; // Added Vec4Swizzles
+use glam::{Mat4, Vec3, Vec4Swizzles};
+use crate::engine_lib::scene_types::Scene;
+use crate::engine_lib::scene_logic::update_camera_in_scene;
+
 
 pub struct CameraController {
     pub camera_pos_delta: Vec3,
@@ -119,7 +122,11 @@ impl CameraController {
         }
     }
 
-    pub fn apply_to_transform(&mut self, camera_pose_matrix: &mut Mat4, dt: f32) {
+    pub fn apply_to_transform(
+        &mut self,
+        scene: &mut Scene, // Changed from &mut Mat4
+        dt: f32
+    ) {
         let move_speed = 3.0 * dt;
         let rot_speed_keyboard = 1.5 * dt;
 
@@ -137,21 +144,24 @@ impl CameraController {
 
         let rotation_y = Mat4::from_rotation_y(self.current_yaw);
         let rotation_x = Mat4::from_rotation_x(self.current_pitch);
-        let current_rotation_matrix = rotation_y * rotation_x;
+        let new_rotation_matrix = rotation_y * rotation_x;
 
-        let local_move_vector = Vec3::new(
+        let local_move_delta = Vec3::new(
             self.camera_pos_delta.x * move_speed,
             self.camera_pos_delta.y * move_speed,
             self.camera_pos_delta.z * move_speed,
         );
-
-        let move_delta_in_host_space = current_rotation_matrix.transform_vector3(local_move_vector);
         
-        // Now .xyz() will be in scope due to `use glam::Vec4Swizzles;`
-        let old_position = camera_pose_matrix.w_axis.xyz(); 
+        let move_delta_in_host_space = new_rotation_matrix.transform_vector3(local_move_delta);
+        
+        let current_local_position = scene.active_camera_local_transform.w_axis.xyz();
+        let potential_new_local_pos = current_local_position + move_delta_in_host_space;
 
-        let new_position = old_position + move_delta_in_host_space;
-
-        *camera_pose_matrix = Mat4::from_translation(new_position) * current_rotation_matrix;
+        update_camera_in_scene(
+            scene,
+            potential_new_local_pos,
+            new_rotation_matrix,
+            dt
+        );
     }
 }

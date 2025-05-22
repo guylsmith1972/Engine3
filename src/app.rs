@@ -9,7 +9,7 @@ use crate::rendering_lib::shader::WGSL_SHADER_SOURCE;
 use crate::rendering_lib::renderer::Renderer;
 use crate::engine_lib::camera::Camera;
 use crate::engine_lib::controller::CameraController;
-use crate::engine_lib::scene_types::Scene; // Mat4 removed from direct import
+use crate::engine_lib::scene_types::Scene;
 use crate::demo_scene;
 
 pub struct PolygonApp {
@@ -85,7 +85,6 @@ impl PolygonApp {
         );
 
         let scene = demo_scene::create_mvp_scene();
-
         let camera = Camera::new(75.0, 0.1, 100.0);
         
         let initial_focus = window.has_focus();
@@ -99,9 +98,8 @@ impl PolygonApp {
             } else { eprintln!("Could not grab cursor on init."); }
         }
         
-        // Initialize CameraController with the orientation from demo_scene's initial camera pose
-        let initial_cam_yaw_from_scene = std::f32::consts::PI; // Matches demo_scene
-        let initial_cam_pitch_from_scene = 0.0;             // Matches demo_scene
+        let initial_cam_yaw_from_scene = std::f32::consts::PI;
+        let initial_cam_pitch_from_scene = 0.0;
 
         let camera_controller = CameraController::new(
             initial_cam_yaw_from_scene, 
@@ -134,7 +132,8 @@ impl PolygonApp {
     }
 
     pub fn update(&mut self, dt: f32) {
-        self.camera_controller.apply_to_transform(&mut self.scene.active_camera_local_transform, dt);
+        // Pass &mut self.scene to apply_to_transform
+        self.camera_controller.apply_to_transform(&mut self.scene, dt);
     }
 
     pub fn render(&mut self, window: &Window) -> Result<(), wgpu::SurfaceError> {
