@@ -1,6 +1,6 @@
 // src/engine_lib/camera.rs
 
-use crate::engine_lib::scene_types::{Point3, Mat4};
+use glam::{Mat4, Vec3}; // Changed
 use crate::rendering_lib::geometry::Point2;
 
 #[derive(Debug)]
@@ -28,16 +28,17 @@ impl Camera {
     // `camera_pose_in_host_hull` is the transform from CamLocal -> HostHullBlueprint.
     // The view matrix is its inverse: HostHullBlueprint -> CamLocal.
     pub fn get_view_matrix_from_host_hull(&self, camera_pose_in_host_hull: &Mat4) -> Mat4 {
-        camera_pose_in_host_hull.inverse()
+        camera_pose_in_host_hull.inverse() // glam::Mat4 has inverse()
     }
 
     // Projects points that are ALREADY in camera view space to screen space.
     pub fn project_camera_space_to_screen_direct(
         &self,
-        p_cam: &Point3, // Point in camera view space
+        p_cam: &Vec3, // Changed from Point3
         screen_width: f32,
         screen_height: f32,
     ) -> Option<Point2> {
+        // glam::Vec3 uses .x, .y, .z directly
         if p_cam.z > -self.znear + 1e-6 { // Cull if z is greater (less negative / more positive) than -znear
             return None;
         }
