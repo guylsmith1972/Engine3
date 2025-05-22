@@ -1,70 +1,67 @@
 // src/engine_lib/controller.rs
 
-// Assuming Point3 will be part of scene_types in this library
-use super::scene_types::Point3;
-use super::camera::Camera;
-
 use winit::{
     event::{WindowEvent, DeviceEvent, ElementState},
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, CursorGrabMode},
 };
+use super::scene_types::{Point3, Mat4};
 
 pub struct CameraController {
-    // Input state previously in PolygonApp
-    pub camera_pos_delta: Point3,
-    pub camera_yaw_delta_accum: f32,   // For keyboard yaw
-    pub camera_pitch_delta_accum: f32, // For keyboard pitch
+    pub camera_pos_delta: Point3, 
+    pub camera_yaw_delta_keyboard: f32,
+    pub camera_pitch_delta_keyboard: f32,
 
-    // Direct deltas for mouse, to be applied immediately to camera
-    pub mouse_dx: f32,
-    pub mouse_dy: f32,
+    pub mouse_dx_accum: f32,
+    pub mouse_dy_accum: f32,
+
+    current_yaw: f32,  
+    current_pitch: f32, 
 
     pub mouse_sensitivity: f32,
     pub cursor_grabbed: bool,
-    // is_focused might still be useful here or managed by app and passed to controller methods
 }
 
 impl CameraController {
-    pub fn new(initial_grab: bool, sensitivity: f32) -> Self {
+    pub fn new(initial_yaw_rad: f32, initial_pitch_rad: f32, initial_grab: bool, sensitivity: f32) -> Self {
         Self {
             camera_pos_delta: Point3::new(0.0, 0.0, 0.0),
-            camera_yaw_delta_accum: 0.0,
-            camera_pitch_delta_accum: 0.0,
-            mouse_dx: 0.0,
-            mouse_dy: 0.0,
+            camera_yaw_delta_keyboard: 0.0,
+            camera_pitch_delta_keyboard: 0.0,
+            mouse_dx_accum: 0.0,
+            mouse_dy_accum: 0.0,
+            current_yaw: initial_yaw_rad,
+            current_pitch: initial_pitch_rad,
             mouse_sensitivity: sensitivity,
             cursor_grabbed: initial_grab,
         }
     }
 
-    // Process Winit window events for input
-    pub fn handle_window_event(&mut self, event: &WindowEvent, window: &Window) -> bool { //
+    pub fn handle_window_event(&mut self, event: &WindowEvent, window: &Window) -> bool {
         match event {
             WindowEvent::KeyboardInput { event: key_event, .. } => {
                 if key_event.state == ElementState::Pressed && key_event.physical_key == PhysicalKey::Code(KeyCode::Escape) {
-                     self.toggle_cursor_grab(window);
-                     return true;
+                    self.toggle_cursor_grab(window);
+                    return true;
                 }
                 let pressed = key_event.state == ElementState::Pressed;
                 match key_event.physical_key {
-                    PhysicalKey::Code(KeyCode::KeyW) => { self.camera_pos_delta.z = if pressed { -1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::KeyS) => { self.camera_pos_delta.z = if pressed { 1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::KeyA) => { self.camera_pos_delta.x = if pressed { -1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::KeyD) => { self.camera_pos_delta.x = if pressed { 1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::Space) => { self.camera_pos_delta.y = if pressed { 1.0 } else { 0.0 }; true }
+                    PhysicalKey::Code(KeyCode::KeyW) => { self.camera_pos_delta.z = if pressed { -1.0 } else { 0.0 }; true } 
+                    PhysicalKey::Code(KeyCode::KeyS) => { self.camera_pos_delta.z = if pressed { 1.0 } else { 0.0 }; true }  
+                    PhysicalKey::Code(KeyCode::KeyA) => { self.camera_pos_delta.x = if pressed { -1.0 } else { 0.0 }; true } 
+                    PhysicalKey::Code(KeyCode::KeyD) => { self.camera_pos_delta.x = if pressed { 1.0 } else { 0.0 }; true }  
+                    PhysicalKey::Code(KeyCode::Space) => { self.camera_pos_delta.y = if pressed { 1.0 } else { 0.0 }; true } 
                     PhysicalKey::Code(KeyCode::ShiftLeft) | PhysicalKey::Code(KeyCode::ControlLeft) => {
-                        self.camera_pos_delta.y = if pressed { -1.0 } else { 0.0 }; true
+                        self.camera_pos_delta.y = if pressed { -1.0 } else { 0.0 }; true 
                     }
-                    PhysicalKey::Code(KeyCode::ArrowLeft) => { self.camera_yaw_delta_accum = if pressed { 1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::ArrowRight) => { self.camera_yaw_delta_accum = if pressed { -1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::ArrowUp) => { self.camera_pitch_delta_accum = if pressed { 1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::ArrowDown) => { self.camera_pitch_delta_accum = if pressed { -1.0 } else { 0.0 }; true }
+                    PhysicalKey::Code(KeyCode::ArrowLeft) => { self.camera_yaw_delta_keyboard = if pressed { 1.0 } else { 0.0 }; true }
+                    PhysicalKey::Code(KeyCode::ArrowRight) => { self.camera_yaw_delta_keyboard = if pressed { -1.0 } else { 0.0 }; true }
+                    PhysicalKey::Code(KeyCode::ArrowUp) => { self.camera_pitch_delta_keyboard = if pressed { 1.0 } else { 0.0 }; true } // Increase pitch delta to look up
+                    PhysicalKey::Code(KeyCode::ArrowDown) => { self.camera_pitch_delta_keyboard = if pressed { -1.0 } else { 0.0 }; true } // Decrease pitch delta to look down
                     _ => false,
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
-                // Assuming is_focused is checked by the caller (app.rs) before calling this
                 if !self.cursor_grabbed && *state == ElementState::Pressed && *button == winit::event::MouseButton::Left {
                     self.grab_cursor(window, true);
                     return true;
@@ -75,114 +72,95 @@ impl CameraController {
                 if !*focused && self.cursor_grabbed {
                     self.grab_cursor(window, false);
                 }
-                false // App should still handle self.is_focused
+                false
             }
             _ => false,
         }
     }
 
-    // Process Winit device events (raw mouse motion)
-    pub fn handle_device_event(&mut self, event: &DeviceEvent) { //
+    pub fn handle_device_event(&mut self, event: &DeviceEvent) {
         if !self.cursor_grabbed {
-            self.mouse_dx = 0.0;
-            self.mouse_dy = 0.0;
+            self.mouse_dx_accum = 0.0;
+            self.mouse_dy_accum = 0.0;
             return;
         }
         match event {
             DeviceEvent::MouseMotion { delta: (dx, dy) } => {
-                self.mouse_dx = *dx as f32;
-                self.mouse_dy = *dy as f32;
+                self.mouse_dx_accum += *dx as f32;
+                self.mouse_dy_accum += *dy as f32; // dy typically negative for mouse up, positive for mouse down
             }
-            // MouseWheel could be handled here if needed
             _ => {}
         }
     }
-    
+
     pub fn toggle_cursor_grab(&mut self, window: &Window) {
         self.grab_cursor(window, !self.cursor_grabbed);
     }
-    
-    // Extracted cursor grabbing logic
-    fn grab_cursor(&mut self, window: &Window, grab: bool) { //
+
+    fn grab_cursor(&mut self, window: &Window, grab: bool) {
         if grab {
             if !self.cursor_grabbed {
-                window.set_cursor_grab(CursorGrabMode::Confined)
+                if window.set_cursor_grab(CursorGrabMode::Confined)
                     .or_else(|_e| window.set_cursor_grab(CursorGrabMode::Locked))
-                    .unwrap_or_else(|e| eprintln!("Could not grab cursor: {:?}", e));
-                window.set_cursor_visible(false);
-                self.cursor_grabbed = true;
+                    .is_ok() {
+                    window.set_cursor_visible(false);
+                    self.cursor_grabbed = true;
+                } else {eprintln!("Could not grab cursor");}
             }
         } else {
             if self.cursor_grabbed {
-                 window.set_cursor_grab(CursorGrabMode::None)
-                    .unwrap_or_else(|e| eprintln!("Could not ungrab cursor: {:?}", e));
-                window.set_cursor_visible(true);
-                self.cursor_grabbed = false;
+                if window.set_cursor_grab(CursorGrabMode::None).is_ok() {
+                    window.set_cursor_visible(true);
+                    self.cursor_grabbed = false;
+                    self.mouse_dx_accum = 0.0;
+                    self.mouse_dy_accum = 0.0;
+                } else {eprintln!("Could not ungrab cursor");}
             }
         }
     }
 
-    // Method to apply queued inputs to the camera
-    // Call this once per frame in the app's update cycle
-    pub fn update_camera(&mut self, camera: &mut Camera, dt: f32) { //
+    pub fn apply_to_transform(&mut self, camera_pose_matrix: &mut Mat4, dt: f32) {
         let move_speed = 3.0 * dt;
-        let rot_speed = 1.5 * dt;
+        let rot_speed_keyboard = 1.5 * dt;
 
-        // Apply mouse look directly
-        camera.yaw -= self.mouse_dx * self.mouse_sensitivity;
-        camera.pitch += self.mouse_dy * self.mouse_sensitivity;
+        self.current_yaw -= self.mouse_dx_accum * self.mouse_sensitivity;
+        self.current_yaw -= self.camera_yaw_delta_keyboard * rot_speed_keyboard;
 
-        // Reset mouse deltas after applying them
-        self.mouse_dx = 0.0;
-        self.mouse_dy = 0.0;
-
-        // Apply keyboard rotation
-        camera.yaw += self.camera_yaw_delta_accum * rot_speed;
-        camera.pitch += self.camera_pitch_delta_accum * rot_speed;
+        // Corrected mouse pitch: subtract mouse_dy_accum
+        // If mouse_dy is negative (mouse up), current_pitch increases (look up).
+        // If mouse_dy is positive (mouse down), current_pitch decreases (look down).
+        self.current_pitch -= self.mouse_dy_accum * self.mouse_sensitivity; 
+        // Arrow key pitch: ArrowUp gives positive delta, ArrowDown gives negative delta.
+        // current_pitch += positive_delta (ArrowUp) -> look up. Correct.
+        // current_pitch += negative_delta (ArrowDown) -> look down. Correct.
+        self.current_pitch += self.camera_pitch_delta_keyboard * rot_speed_keyboard; 
         
-        // Clamp pitch
-        camera.pitch = camera.pitch.clamp(
-            -std::f32::consts::FRAC_PI_2 + 0.01,
-            std::f32::consts::FRAC_PI_2 - 0.01
+        self.mouse_dx_accum = 0.0;
+        self.mouse_dy_accum = 0.0;
+
+        let pitch_limit = std::f32::consts::FRAC_PI_2 - 0.01;
+        self.current_pitch = self.current_pitch.clamp(-pitch_limit, pitch_limit);
+
+        let rotation_y = Mat4::from_rotation_y(self.current_yaw);
+        let rotation_x = Mat4::from_rotation_x(self.current_pitch);
+        let current_rotation_matrix = rotation_y.multiply(&rotation_x);
+
+        let local_move_vector = Point3::new(
+            self.camera_pos_delta.x * move_speed,
+            self.camera_pos_delta.y * move_speed,
+            self.camera_pos_delta.z * move_speed, 
         );
 
-        // Apply movement based on current camera orientation (after rotation)
-        let cos_pitch = camera.pitch.cos();
-        let sin_pitch = camera.pitch.sin();
-        let cos_yaw = camera.yaw.cos();
-        let sin_yaw = camera.yaw.sin();
+        let move_delta_in_host_space = current_rotation_matrix.transform_point(&local_move_vector);
 
-        // Forward direction in world space (camera looks down its local -Z)
-        // X: right, Y: up, Z: backward (standard right-handed system if camera starts looking along -Z world)
-        // If yaw = 0, pitch = 0, camera looks along -Z world. sin(0)=0, cos(0)=1.
-        // Forward = (0, 0, -1)
-        // Here, yaw is rotation around global Y. Pitch is rotation around camera's local X.
+        let old_position = Point3::new(
+            camera_pose_matrix.data[0][3],
+            camera_pose_matrix.data[1][3],
+            camera_pose_matrix.data[2][3],
+        );
         
-        // Standard FPS camera forward vector calculation:
-        let forward_dir = Point3::new(
-            -sin_yaw * cos_pitch,
-            sin_pitch,
-            -cos_yaw * cos_pitch
-        ).normalize();
+        let new_position = old_position.add(&move_delta_in_host_space);
 
-        let right_dir = Point3::new(
-            -forward_dir.z,
-            0.0,
-            forward_dir.x
-        ).normalize();
-
-
-        // Movement based on input (camera_pos_delta.z for forward/backward, .x for strafe)
-        // camera_pos_delta.z: -1 for W (forward), 1 for S (backward)
-        // camera_pos_delta.x: -1 for A (left), 1 for D (right)
-
-        let effective_forward_input = -self.camera_pos_delta.z; // W is -1, so -(-1)=1 (move forward)
-        let effective_strafe_input = self.camera_pos_delta.x;   // D is 1 (move right)
-
-        camera.position = camera.position.add(&forward_dir.mul_scalar(effective_forward_input * move_speed));
-        camera.position = camera.position.add(&right_dir.mul_scalar(effective_strafe_input * move_speed));
-        
-        // Vertical movement
-        camera.position.y += self.camera_pos_delta.y * move_speed;
+        *camera_pose_matrix = Mat4::from_translation(new_position).multiply(&current_rotation_matrix);
     }
 }

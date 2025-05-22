@@ -1,24 +1,17 @@
 // src/main.rs
 
-// Keep top-level modules that are still directly in src
 pub mod app;
 pub mod ui;
-
-// Declare the new library modules and other top-level utility modules
 pub mod engine_lib;
 pub mod rendering_lib;
-pub mod demo_scene; // For scene creation logic
-
-// Remove obsolete module declarations:
-
+pub mod demo_scene;
 
 use winit::{
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::{ControlFlow, EventLoopWindowTarget, EventLoop}, 
     window::WindowBuilder,
 };
-
-use app::PolygonApp; // This should still work as app.rs is a top-level module
+use app::PolygonApp;
 
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen(start))]
 pub async fn run() {
@@ -34,7 +27,7 @@ pub async fn run() {
     let event_loop = EventLoop::new().unwrap();
     let window = std::sync::Arc::new(
         WindowBuilder::new()
-            .with_title("Portal Rendering - Refactored") // Updated title slightly
+            .with_title("Portal Rendering - Refactored")
             .with_inner_size(winit::dpi::LogicalSize::new(1024, 768))
             .build(&event_loop)
             .unwrap(),
@@ -47,7 +40,7 @@ pub async fn run() {
             .and_then(|win| win.document())
             .and_then(|doc| {
                 let dst = doc.get_element_by_id("wasm-viewport")?;
-                let canvas = web_sys::Element::from(window.canvas()?);
+                let canvas = web_sys::Element::from(window.canvas().ok()?); 
                 dst.append_child(&canvas).ok()?;
                 Some(())
             })
@@ -58,7 +51,7 @@ pub async fn run() {
     let mut last_time = std::time::Instant::now();
 
     event_loop
-        .run(move |event, target| {
+        .run(move |event, target: &EventLoopWindowTarget<()>| { 
             target.set_control_flow(ControlFlow::Poll);
 
             match event {
@@ -66,17 +59,15 @@ pub async fn run() {
                     ref event,
                     window_id,
                 } if window_id == window.id() => {
-                    // Pass window event to app_state.handle_window_event
-                    // This also handles egui events internally first
-                    if !app_state.handle_window_event(event, &window) { // Ensure this matches the method in app.rs
+                    if !app_state.handle_window_event(event, &window) {
                         match event {
-                            WindowEvent::CloseRequested => target.exit(),
+                            WindowEvent::CloseRequested => {
+                                target.exit();
+                            }
                             WindowEvent::Resized(physical_size) => {
                                 app_state.resize(*physical_size);
                             }
-                            WindowEvent::RedrawRequested => {
-                                // Moved redraw logic to AboutToWait to ensure update happens before render
-                            }
+                            WindowEvent::RedrawRequested => { /* In AboutToWait */ }
                             WindowEvent::Focused(is_focused) => {
                                 app_state.set_focused(*is_focused);
                             }
@@ -96,21 +87,20 @@ pub async fn run() {
                     match app_state.render(&window) {
                         Ok(_) => {}
                         Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
-                            // Reconfigure surface if lost or outdated
                             app_state.resize(app_state.get_size());
                         }
                         Err(wgpu::SurfaceError::OutOfMemory) => {
                             eprintln!("WGPU Out Of Memory! Exiting.");
-                            target.exit();
+                            target.exit(); 
                         }
                         Err(e) => eprintln!("Surface error: {:?}", e),
                     }
                     
-                    // Request redraw after update and render logic
-                    if !target.exiting() {
+                    if !target.exiting() { 
                         window.request_redraw();
                     }
                 }
+                Event::LoopExiting => {}
                 _ => {}
             }
         })
