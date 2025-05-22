@@ -1,9 +1,10 @@
 // src/demo_scene.rs
 
 use std::collections::HashMap;
+use glam::{Mat4, Vec3}; // Changed
 use crate::engine_lib::scene_types::{
     Scene, HullBlueprint, BlueprintSide, HullInstance,
-    Point3, Mat4, HandlerConfig, SideHandlerTypeId,
+    HandlerConfig, SideHandlerTypeId,
     PortalConnectionInfo, PortalId,
     BlueprintId, InstanceId, SideIndex,
 };
@@ -23,25 +24,25 @@ const CEILING_COLOR_CONF: HandlerConfig = HandlerConfig::StandardWall { color: [
 const FLOOR_COLOR_CONF: HandlerConfig = HandlerConfig::StandardWall { color: [0.0, 1.0, 0.0, 1.0], texture_id: None };
 const LEFT_WALL_COLOR_CONF: HandlerConfig = HandlerConfig::StandardWall { color: [1.0, 1.0, 1.0, 1.0], texture_id: None };
 const RIGHT_WALL_COLOR_CONF: HandlerConfig = HandlerConfig::StandardWall { color: [0.5, 0.5, 0.5, 1.0], texture_id: None };
-const FRONT_WALL_COLOR_BLUE_CONF: HandlerConfig = HandlerConfig::StandardWall { color: [0.3, 0.3, 0.8, 1.0], texture_id: None }; 
-const BACK_WALL_YELLOW_CONF: HandlerConfig = HandlerConfig::StandardWall { color: [0.8, 0.8, 0.3, 1.0], texture_id: None }; 
-const ORANGE_WALL_CONF: HandlerConfig = HandlerConfig::StandardWall {color: [0.9, 0.5, 0.2, 1.0], texture_id: None }; 
+const FRONT_WALL_COLOR_BLUE_CONF: HandlerConfig = HandlerConfig::StandardWall { color: [0.3, 0.3, 0.8, 1.0], texture_id: None };
+const BACK_WALL_YELLOW_CONF: HandlerConfig = HandlerConfig::StandardWall { color: [0.8, 0.8, 0.3, 1.0], texture_id: None };
+const ORANGE_WALL_CONF: HandlerConfig = HandlerConfig::StandardWall {color: [0.9, 0.5, 0.2, 1.0], texture_id: None };
 
 fn create_cuboid_room_blueprint() -> HullBlueprint {
-    let half_size = 1.5; 
-    let vertices = vec![
-        Point3::new(-half_size, -half_size, -half_size), Point3::new( half_size, -half_size, -half_size),
-        Point3::new( half_size,  half_size, -half_size), Point3::new(-half_size,  half_size, -half_size),
-        Point3::new(-half_size, -half_size,  half_size), Point3::new( half_size, -half_size,  half_size),
-        Point3::new( half_size,  half_size,  half_size), Point3::new(-half_size,  half_size,  half_size),
+    let half_size = 1.5;
+    let vertices = vec![ // Changed to Vec3
+        Vec3::new(-half_size, -half_size, -half_size), Vec3::new( half_size, -half_size, -half_size),
+        Vec3::new( half_size,  half_size, -half_size), Vec3::new(-half_size,  half_size, -half_size),
+        Vec3::new(-half_size, -half_size,  half_size), Vec3::new( half_size, -half_size,  half_size),
+        Vec3::new( half_size,  half_size,  half_size), Vec3::new(-half_size,  half_size,  half_size),
     ];
     let sides = vec![
-        BlueprintSide { vertex_indices: vec![4,5,6,7], local_normal: Point3::new(0.0,0.0,-1.0), handler_type:SideHandlerTypeId::StandardWall, default_handler_config:FRONT_WALL_COLOR_BLUE_CONF.clone(), local_portal_id: Some(PORTAL_ID_FRONT) },
-        BlueprintSide { vertex_indices: vec![1,0,3,2], local_normal: Point3::new(0.0,0.0,1.0), handler_type:SideHandlerTypeId::StandardWall, default_handler_config:BACK_WALL_YELLOW_CONF.clone(), local_portal_id: Some(PORTAL_ID_BACK) },
-        BlueprintSide { vertex_indices: vec![0,4,7,3], local_normal: Point3::new(1.0,0.0,0.0), handler_type:SideHandlerTypeId::StandardWall, default_handler_config:LEFT_WALL_COLOR_CONF.clone(), local_portal_id: Some(PORTAL_ID_LEFT) },
-        BlueprintSide { vertex_indices: vec![5,1,2,6], local_normal: Point3::new(-1.0,0.0,0.0), handler_type:SideHandlerTypeId::StandardWall, default_handler_config:RIGHT_WALL_COLOR_CONF.clone(), local_portal_id: Some(PORTAL_ID_RIGHT) },
-        BlueprintSide { vertex_indices: vec![7,6,2,3], local_normal: Point3::new(0.0,-1.0,0.0), handler_type:SideHandlerTypeId::StandardWall, default_handler_config:CEILING_COLOR_CONF.clone(), local_portal_id: Some(PORTAL_ID_TOP) },
-        BlueprintSide { vertex_indices: vec![0,1,5,4], local_normal: Point3::new(0.0,1.0,0.0), handler_type:SideHandlerTypeId::StandardWall, default_handler_config:FLOOR_COLOR_CONF.clone(), local_portal_id: Some(PORTAL_ID_BOTTOM) },
+        BlueprintSide { vertex_indices: vec![4,5,6,7], local_normal: Vec3::new(0.0,0.0,-1.0), handler_type:SideHandlerTypeId::StandardWall, default_handler_config:FRONT_WALL_COLOR_BLUE_CONF.clone(), local_portal_id: Some(PORTAL_ID_FRONT) },
+        BlueprintSide { vertex_indices: vec![1,0,3,2], local_normal: Vec3::new(0.0,0.0,1.0), handler_type:SideHandlerTypeId::StandardWall, default_handler_config:BACK_WALL_YELLOW_CONF.clone(), local_portal_id: Some(PORTAL_ID_BACK) },
+        BlueprintSide { vertex_indices: vec![0,4,7,3], local_normal: Vec3::new(1.0,0.0,0.0), handler_type:SideHandlerTypeId::StandardWall, default_handler_config:LEFT_WALL_COLOR_CONF.clone(), local_portal_id: Some(PORTAL_ID_LEFT) },
+        BlueprintSide { vertex_indices: vec![5,1,2,6], local_normal: Vec3::new(-1.0,0.0,0.0), handler_type:SideHandlerTypeId::StandardWall, default_handler_config:RIGHT_WALL_COLOR_CONF.clone(), local_portal_id: Some(PORTAL_ID_RIGHT) },
+        BlueprintSide { vertex_indices: vec![7,6,2,3], local_normal: Vec3::new(0.0,-1.0,0.0), handler_type:SideHandlerTypeId::StandardWall, default_handler_config:CEILING_COLOR_CONF.clone(), local_portal_id: Some(PORTAL_ID_TOP) },
+        BlueprintSide { vertex_indices: vec![0,1,5,4], local_normal: Vec3::new(0.0,1.0,0.0), handler_type:SideHandlerTypeId::StandardWall, default_handler_config:FLOOR_COLOR_CONF.clone(), local_portal_id: Some(PORTAL_ID_BOTTOM) },
     ];
     HullBlueprint { id: CUBOID_BLUEPRINT_ID, name: "CuboidRoomBlueprint_InwardNormals".to_string(), local_vertices: vertices, sides }
 }
@@ -55,49 +56,48 @@ pub fn create_mvp_scene() -> Scene {
 
     let mut room1_portal_connections = HashMap::new();
     let mut room1_side_configs = HashMap::new();
-    room1_side_configs.insert(0 as SideIndex, HandlerConfig::StandardPortal { 
-        target_instance_id: ROOM2_INSTANCE_ID, target_portal_id: PORTAL_ID_BACK, 
+    room1_side_configs.insert(0 as SideIndex, HandlerConfig::StandardPortal {
+        target_instance_id: ROOM2_INSTANCE_ID, target_portal_id: PORTAL_ID_BACK,
     });
     room1_portal_connections.insert(PORTAL_ID_FRONT, PortalConnectionInfo {
         target_instance_id: ROOM2_INSTANCE_ID, target_portal_id: PORTAL_ID_BACK,
     });
     let room1 = HullInstance {
         id: ROOM1_INSTANCE_ID, name: "Room1".to_string(), blueprint_id: CUBOID_BLUEPRINT_ID,
-        initial_transform: Some(Mat4::from_translation(Point3::new(0.0, 0.0, 0.0))),
-        portal_connections: room1_portal_connections, 
+        initial_transform: Some(Mat4::from_translation(Vec3::new(0.0, 0.0, 0.0))), // Changed
+        portal_connections: room1_portal_connections,
         instance_side_handler_configs: room1_side_configs,
     };
     instances.insert(room1.id, room1);
 
-    // Room 2 connects back to Room 1
-    let mut room2_portal_connections: HashMap<PortalId, PortalConnectionInfo> = HashMap::new(); // Explicit type
+    let mut room2_portal_connections: HashMap<PortalId, PortalConnectionInfo> = HashMap::new();
     let mut room2_side_configs = HashMap::new();
-    
-    room2_side_configs.insert(1 as SideIndex, HandlerConfig::StandardPortal { 
-        target_instance_id: ROOM1_INSTANCE_ID,
-        target_portal_id: PORTAL_ID_FRONT, 
-    });
-    room2_portal_connections.insert(PORTAL_ID_BACK, PortalConnectionInfo { // Add connection info
+
+    room2_side_configs.insert(1 as SideIndex, HandlerConfig::StandardPortal {
         target_instance_id: ROOM1_INSTANCE_ID,
         target_portal_id: PORTAL_ID_FRONT,
     });
-    room2_side_configs.insert(0 as SideIndex, ORANGE_WALL_CONF.clone()); 
+    room2_portal_connections.insert(PORTAL_ID_BACK, PortalConnectionInfo { 
+        target_instance_id: ROOM1_INSTANCE_ID,
+        target_portal_id: PORTAL_ID_FRONT,
+    });
+    room2_side_configs.insert(0 as SideIndex, ORANGE_WALL_CONF.clone());
 
     let room2 = HullInstance {
         id: ROOM2_INSTANCE_ID, name: "Room2".to_string(), blueprint_id: CUBOID_BLUEPRINT_ID,
-        initial_transform: None, 
-        portal_connections: room2_portal_connections, 
+        initial_transform: None,
+        portal_connections: room2_portal_connections,
         instance_side_handler_configs: room2_side_configs,
     };
     instances.insert(room2.id, room2);
 
-    let initial_camera_position_in_room1 = Point3::new(0.0, 0.0, -1.0); 
-    let initial_camera_yaw_rad = std::f32::consts::PI; 
+    let initial_camera_position_in_room1 = Vec3::new(0.0, 0.0, -1.0); // Changed
+    let initial_camera_yaw_rad = std::f32::consts::PI;
     let initial_camera_pitch_rad = 0.0f32.to_radians();
     let rot_y = Mat4::from_rotation_y(initial_camera_yaw_rad);
     let rot_x = Mat4::from_rotation_x(initial_camera_pitch_rad);
-    let initial_rotation = rot_y.multiply(&rot_x);
-    let initial_camera_transform = Mat4::from_translation(initial_camera_position_in_room1).multiply(&initial_rotation);
+    let initial_rotation = rot_y * rot_x; // Changed
+    let initial_camera_transform = Mat4::from_translation(initial_camera_position_in_room1) * initial_rotation; // Changed
 
     Scene {
         blueprints, instances,

@@ -5,14 +5,15 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use bytemuck::{Pod, Zeroable};
 use wgpu::util::DeviceExt;
+use glam::{Mat4, Vec3}; // Added glam import
 
 use super::vertex::Vertex;
 use super::geometry::{ConvexPolygon, Point2, MAX_VERTICES};
 use super::intersection::ConvexIntersection;
 
 // Refined imports - types needed for direct use or struct fields in this file's logic
-use crate::engine_lib::scene_types::{
-    Scene, Point3, TraversalState, Mat4, SideHandlerTypeId, SideIndex
+use crate::engine_lib::scene_types::{ // Mat4 and Point3 removed from direct import here
+    Scene, TraversalState, SideHandlerTypeId, SideIndex
 };
 use crate::engine_lib::camera::Camera;
 use crate::engine_lib::side_handler::{SideHandler, StandardWallHandler, StandardPortalHandler, HandlerContext};
@@ -31,42 +32,41 @@ struct ScreenDimensionsUniform {
 }
 
 fn clip_polygon_near_plane_3d(
-    polygon_cam_space: &[Point3],
+    polygon_cam_space: &[Vec3], // Changed from Point3
     camera_znear: f32,
-) -> Vec<Point3> {
+) -> Vec<Vec3> { // Changed from Point3
     if polygon_cam_space.is_empty() {
         return Vec::new();
     }
     let mut output_list = Vec::with_capacity(polygon_cam_space.len() + 1);
-    // Guard against panic if polygon_cam_space is empty after check, though is_empty() should cover.
-    if polygon_cam_space.is_empty() { 
-        return output_list; 
+    if polygon_cam_space.is_empty() {
+        return output_list;
     }
 
     let mut s = polygon_cam_space[polygon_cam_space.len() - 1];
     for p_idx in 0..polygon_cam_space.len() {
         let p = &polygon_cam_space[p_idx];
-        let s_is_inside = s.z < (-camera_znear + 1e-6); 
+        let s_is_inside = s.z < (-camera_znear + 1e-6);
         let p_is_inside = p.z < (-camera_znear + 1e-6);
 
         if s_is_inside && p_is_inside {
             output_list.push(*p);
-        } else if s_is_inside && !p_is_inside { 
-            if (p.z - s.z).abs() > 1e-6 { 
-                let t = (-camera_znear - s.z) / (p.z - s.z);
-                if t >= 0.0 && t <= 1.0 { 
-                    let ix = s.x + t * (p.x - s.x);
-                    let iy = s.y + t * (p.y - s.y);
-                    output_list.push(Point3::new(ix, iy, -camera_znear));
-                }
-            }
-        } else if !s_is_inside && p_is_inside { 
+        } else if s_is_inside && !p_is_inside {
             if (p.z - s.z).abs() > 1e-6 {
                 let t = (-camera_znear - s.z) / (p.z - s.z);
-                if t >= 0.0 && t <= 1.0 { 
+                if t >= 0.0 && t <= 1.0 {
                     let ix = s.x + t * (p.x - s.x);
                     let iy = s.y + t * (p.y - s.y);
-                    output_list.push(Point3::new(ix, iy, -camera_znear));
+                    output_list.push(Vec3::new(ix, iy, -camera_znear)); // Changed
+                }
+            }
+        } else if !s_is_inside && p_is_inside {
+            if (p.z - s.z).abs() > 1e-6 {
+                let t = (-camera_znear - s.z) / (p.z - s.z);
+                if t >= 0.0 && t <= 1.0 {
+                    let ix = s.x + t * (p.x - s.x);
+                    let iy = s.y + t * (p.y - s.y);
+                    output_list.push(Vec3::new(ix, iy, -camera_znear)); // Changed
                 }
             }
             output_list.push(*p);
@@ -163,7 +163,7 @@ impl Renderer {
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None, // Rely on manual culling or portal logic
+                cull_mode: None, 
                 polygon_mode: wgpu::PolygonMode::Fill,
                 unclipped_depth: false,
                 conservative: false,
@@ -233,18 +233,17 @@ impl Renderer {
             Point2::new(0.0, screen_height),
         ];
         let initial_screen_clip_polygon = ConvexPolygon::from_points(&initial_clip_points);
-        
+
         let camera_view_from_host_hull = camera.get_view_matrix_from_host_hull(&scene.active_camera_local_transform);
 
         if scene.instances.contains_key(&scene.active_camera_instance_id) {
             traversal_queue.push_back(TraversalState {
                 current_instance_id: scene.active_camera_instance_id,
-                accumulated_transform: Mat4::identity(),
+                accumulated_transform: Mat4::IDENTITY, // Changed
                 screen_space_clip_polygon: initial_screen_clip_polygon,
                 recursion_depth: 0,
             });
         } else {
-            // Fallback clear if no valid start
             let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Clear Pass (Error)"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -256,7 +255,7 @@ impl Renderer {
             });
             return;
         }
-        
+
         while let Some(current_traversal_state) = traversal_queue.pop_front() {
             let current_instance = match scene.instances.get(&current_traversal_state.current_instance_id) {
                 Some(inst) => inst,
@@ -272,12 +271,12 @@ impl Renderer {
                     continue;
                 }
 
-                let mut side_vertices_bp_local: Vec<Point3> = Vec::with_capacity(blueprint_side.vertex_indices.len());
+                let mut side_vertices_bp_local: Vec<Vec3> = Vec::with_capacity(blueprint_side.vertex_indices.len()); // Changed
                 for &v_idx in &blueprint_side.vertex_indices {
                     if v_idx < blueprint.local_vertices.len() {
                         side_vertices_bp_local.push(blueprint.local_vertices[v_idx]);
                     } else {
-                        side_vertices_bp_local.clear(); // Invalid state, skip this side
+                        side_vertices_bp_local.clear(); 
                         break;
                     }
                 }
@@ -286,10 +285,11 @@ impl Renderer {
                 }
 
                 let transform_curr_bp_to_host_bp = &current_traversal_state.accumulated_transform;
-                let mut side_vertices_cam_space: Vec<Point3> = Vec::with_capacity(side_vertices_bp_local.len());
+                let mut side_vertices_cam_space: Vec<Vec3> = Vec::with_capacity(side_vertices_bp_local.len()); // Changed
                 for p_bp_local in &side_vertices_bp_local {
-                    let p_host_hull_space = transform_curr_bp_to_host_bp.transform_point(p_bp_local);
-                    side_vertices_cam_space.push(camera_view_from_host_hull.transform_point(&p_host_hull_space));
+                    // Use transform_point3 for Vec3
+                    let p_host_hull_space = transform_curr_bp_to_host_bp.transform_point3(*p_bp_local);
+                    side_vertices_cam_space.push(camera_view_from_host_hull.transform_point3(p_host_hull_space));
                 }
 
                 let clipped_vertices_cam_space = clip_polygon_near_plane_3d(&side_vertices_cam_space, camera.znear);
@@ -311,7 +311,7 @@ impl Renderer {
                 if p_projected_on_screen.count() < 3 {
                     continue;
                 }
-                
+
                 let mut final_visible_screen_polygon = ConvexPolygon::new();
                 ConvexIntersection::find_intersection_into(
                     &p_projected_on_screen,
@@ -321,10 +321,10 @@ impl Renderer {
                 if final_visible_screen_polygon.count() < 3 {
                     continue;
                 }
-                
+
                 let side_config_override = current_instance.instance_side_handler_configs.get(&(side_idx as SideIndex));
                 let effective_config = side_config_override.unwrap_or(&blueprint_side.default_handler_config);
-                
+
                 let mut handler_ctx = HandlerContext {
                     frame_vertices: &mut self.frame_vertices,
                     frame_indices: &mut self.frame_indices,
@@ -341,7 +341,7 @@ impl Renderer {
                     traversal_queue: &mut temp_traversal_queue_for_next_depth,
                     current_recursion_depth: current_traversal_state.recursion_depth,
                 };
-                
+
                 match effective_config.get_intended_handler_type() {
                     SideHandlerTypeId::StandardWall => self.wall_handler.process_render(&mut handler_ctx),
                     SideHandlerTypeId::StandardPortal => self.portal_handler.process_render(&mut handler_ctx),
@@ -350,12 +350,12 @@ impl Renderer {
             }
             traversal_queue.append(&mut temp_traversal_queue_for_next_depth);
         }
-        
+
         if !self.frame_vertices.is_empty() && !self.frame_indices.is_empty() {
             queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&self.frame_vertices));
             let mut padded_indices_data = self.frame_indices.clone();
-            if padded_indices_data.len() % 2 == 1 { 
-                padded_indices_data.push(0); // Align for WebGL
+            if padded_indices_data.len() % 2 == 1 {
+                padded_indices_data.push(0); 
             }
             queue.write_buffer(&self.index_buffer, 0, bytemuck::cast_slice(&padded_indices_data));
 
@@ -372,7 +372,7 @@ impl Renderer {
             });
             render_pass.set_pipeline(&self.render_pipeline);
             render_pass.set_bind_group(0, &self.screen_bind_group, &[]);
-            
+
             let vertex_buffer_slice_size = (self.frame_vertices.len() * std::mem::size_of::<Vertex>()) as u64;
             let effective_indices_count = self.frame_indices.len();
             let index_buffer_slice_size = if self.frame_indices.len() % 2 == 1 {
@@ -384,9 +384,8 @@ impl Renderer {
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..vertex_buffer_slice_size));
             render_pass.set_index_buffer(self.index_buffer.slice(..index_buffer_slice_size), wgpu::IndexFormat::Uint16);
             render_pass.draw_indexed(0..effective_indices_count as u32, 0, 0..1);
-            
+
         } else {
-            // If nothing to draw, still clear the screen
             let _render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Clear Pass (Empty Scene)"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {

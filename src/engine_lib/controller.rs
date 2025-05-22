@@ -5,18 +5,18 @@ use winit::{
     keyboard::{KeyCode, PhysicalKey},
     window::{Window, CursorGrabMode},
 };
-use super::scene_types::{Point3, Mat4};
+use glam::{Mat4, Vec3, Vec4Swizzles}; // Added Vec4Swizzles
 
 pub struct CameraController {
-    pub camera_pos_delta: Point3, 
+    pub camera_pos_delta: Vec3,
     pub camera_yaw_delta_keyboard: f32,
     pub camera_pitch_delta_keyboard: f32,
 
     pub mouse_dx_accum: f32,
     pub mouse_dy_accum: f32,
 
-    current_yaw: f32,  
-    current_pitch: f32, 
+    current_yaw: f32,
+    current_pitch: f32,
 
     pub mouse_sensitivity: f32,
     pub cursor_grabbed: bool,
@@ -25,7 +25,7 @@ pub struct CameraController {
 impl CameraController {
     pub fn new(initial_yaw_rad: f32, initial_pitch_rad: f32, initial_grab: bool, sensitivity: f32) -> Self {
         Self {
-            camera_pos_delta: Point3::new(0.0, 0.0, 0.0),
+            camera_pos_delta: Vec3::ZERO,
             camera_yaw_delta_keyboard: 0.0,
             camera_pitch_delta_keyboard: 0.0,
             mouse_dx_accum: 0.0,
@@ -46,18 +46,18 @@ impl CameraController {
                 }
                 let pressed = key_event.state == ElementState::Pressed;
                 match key_event.physical_key {
-                    PhysicalKey::Code(KeyCode::KeyW) => { self.camera_pos_delta.z = if pressed { -1.0 } else { 0.0 }; true } 
-                    PhysicalKey::Code(KeyCode::KeyS) => { self.camera_pos_delta.z = if pressed { 1.0 } else { 0.0 }; true }  
-                    PhysicalKey::Code(KeyCode::KeyA) => { self.camera_pos_delta.x = if pressed { -1.0 } else { 0.0 }; true } 
-                    PhysicalKey::Code(KeyCode::KeyD) => { self.camera_pos_delta.x = if pressed { 1.0 } else { 0.0 }; true }  
-                    PhysicalKey::Code(KeyCode::Space) => { self.camera_pos_delta.y = if pressed { 1.0 } else { 0.0 }; true } 
+                    PhysicalKey::Code(KeyCode::KeyW) => { self.camera_pos_delta.z = if pressed { -1.0 } else { 0.0 }; true }
+                    PhysicalKey::Code(KeyCode::KeyS) => { self.camera_pos_delta.z = if pressed { 1.0 } else { 0.0 }; true }
+                    PhysicalKey::Code(KeyCode::KeyA) => { self.camera_pos_delta.x = if pressed { -1.0 } else { 0.0 }; true }
+                    PhysicalKey::Code(KeyCode::KeyD) => { self.camera_pos_delta.x = if pressed { 1.0 } else { 0.0 }; true }
+                    PhysicalKey::Code(KeyCode::Space) => { self.camera_pos_delta.y = if pressed { 1.0 } else { 0.0 }; true }
                     PhysicalKey::Code(KeyCode::ShiftLeft) | PhysicalKey::Code(KeyCode::ControlLeft) => {
-                        self.camera_pos_delta.y = if pressed { -1.0 } else { 0.0 }; true 
+                        self.camera_pos_delta.y = if pressed { -1.0 } else { 0.0 }; true
                     }
                     PhysicalKey::Code(KeyCode::ArrowLeft) => { self.camera_yaw_delta_keyboard = if pressed { 1.0 } else { 0.0 }; true }
                     PhysicalKey::Code(KeyCode::ArrowRight) => { self.camera_yaw_delta_keyboard = if pressed { -1.0 } else { 0.0 }; true }
-                    PhysicalKey::Code(KeyCode::ArrowUp) => { self.camera_pitch_delta_keyboard = if pressed { 1.0 } else { 0.0 }; true } // Increase pitch delta to look up
-                    PhysicalKey::Code(KeyCode::ArrowDown) => { self.camera_pitch_delta_keyboard = if pressed { -1.0 } else { 0.0 }; true } // Decrease pitch delta to look down
+                    PhysicalKey::Code(KeyCode::ArrowUp) => { self.camera_pitch_delta_keyboard = if pressed { 1.0 } else { 0.0 }; true }
+                    PhysicalKey::Code(KeyCode::ArrowDown) => { self.camera_pitch_delta_keyboard = if pressed { -1.0 } else { 0.0 }; true }
                     _ => false,
                 }
             }
@@ -87,7 +87,7 @@ impl CameraController {
         match event {
             DeviceEvent::MouseMotion { delta: (dx, dy) } => {
                 self.mouse_dx_accum += *dx as f32;
-                self.mouse_dy_accum += *dy as f32; // dy typically negative for mouse up, positive for mouse down
+                self.mouse_dy_accum += *dy as f32;
             }
             _ => {}
         }
@@ -126,15 +126,9 @@ impl CameraController {
         self.current_yaw -= self.mouse_dx_accum * self.mouse_sensitivity;
         self.current_yaw -= self.camera_yaw_delta_keyboard * rot_speed_keyboard;
 
-        // Corrected mouse pitch: subtract mouse_dy_accum
-        // If mouse_dy is negative (mouse up), current_pitch increases (look up).
-        // If mouse_dy is positive (mouse down), current_pitch decreases (look down).
-        self.current_pitch -= self.mouse_dy_accum * self.mouse_sensitivity; 
-        // Arrow key pitch: ArrowUp gives positive delta, ArrowDown gives negative delta.
-        // current_pitch += positive_delta (ArrowUp) -> look up. Correct.
-        // current_pitch += negative_delta (ArrowDown) -> look down. Correct.
-        self.current_pitch += self.camera_pitch_delta_keyboard * rot_speed_keyboard; 
-        
+        self.current_pitch -= self.mouse_dy_accum * self.mouse_sensitivity;
+        self.current_pitch += self.camera_pitch_delta_keyboard * rot_speed_keyboard;
+
         self.mouse_dx_accum = 0.0;
         self.mouse_dy_accum = 0.0;
 
@@ -143,24 +137,21 @@ impl CameraController {
 
         let rotation_y = Mat4::from_rotation_y(self.current_yaw);
         let rotation_x = Mat4::from_rotation_x(self.current_pitch);
-        let current_rotation_matrix = rotation_y.multiply(&rotation_x);
+        let current_rotation_matrix = rotation_y * rotation_x;
 
-        let local_move_vector = Point3::new(
+        let local_move_vector = Vec3::new(
             self.camera_pos_delta.x * move_speed,
             self.camera_pos_delta.y * move_speed,
-            self.camera_pos_delta.z * move_speed, 
+            self.camera_pos_delta.z * move_speed,
         );
 
-        let move_delta_in_host_space = current_rotation_matrix.transform_point(&local_move_vector);
-
-        let old_position = Point3::new(
-            camera_pose_matrix.data[0][3],
-            camera_pose_matrix.data[1][3],
-            camera_pose_matrix.data[2][3],
-        );
+        let move_delta_in_host_space = current_rotation_matrix.transform_vector3(local_move_vector);
         
-        let new_position = old_position.add(&move_delta_in_host_space);
+        // Now .xyz() will be in scope due to `use glam::Vec4Swizzles;`
+        let old_position = camera_pose_matrix.w_axis.xyz(); 
 
-        *camera_pose_matrix = Mat4::from_translation(new_position).multiply(&current_rotation_matrix);
+        let new_position = old_position + move_delta_in_host_space;
+
+        *camera_pose_matrix = Mat4::from_translation(new_position) * current_rotation_matrix;
     }
 }
