@@ -1,21 +1,16 @@
 // src/app.rs
 
 use winit::{
-    event::{ElementState, WindowEvent, DeviceEvent},
+    event::{WindowEvent, DeviceEvent},
     window::{Window, CursorGrabMode},
 };
-
-// Local modules
 use crate::ui::build_ui;
-
-// New library imports
 use crate::rendering_lib::shader::WGSL_SHADER_SOURCE;
 use crate::rendering_lib::renderer::Renderer;
 use crate::engine_lib::camera::Camera;
 use crate::engine_lib::controller::CameraController;
-use crate::engine_lib::scene_types::{Scene, Point3};
-use crate::demo_scene::create_mvp_scene;
-
+use crate::engine_lib::scene_types::Scene; // Mat4 removed from direct import
+use crate::demo_scene;
 
 pub struct PolygonApp {
     surface: wgpu::Surface<'static>,
@@ -23,33 +18,21 @@ pub struct PolygonApp {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
-    
-    renderer: Renderer, 
-
+    renderer: Renderer,
     scene: Scene,
     camera: Camera,
-    camera_controller: CameraController, // New controller
-    
+    camera_controller: CameraController,
     egui_ctx: egui::Context,
     egui_state: egui_winit::State,
     egui_renderer: egui_wgpu::Renderer,
-
     is_focused: bool,
 }
 
 impl PolygonApp {
     pub async fn new(window: std::sync::Arc<Window>) -> Self {
         let size = window.inner_size();
-
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            flags: wgpu::InstanceFlags::default(),
-            dx12_shader_compiler: Default::default(),
-            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
-        });
-
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
         let surface = instance.create_surface(window.clone()).unwrap();
-
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::default(),
@@ -58,15 +41,14 @@ impl PolygonApp {
             })
             .await
             .unwrap();
-
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::default(), 
+                    required_limits: wgpu::Limits::default(),
                     label: None,
                 },
-                None, 
+                None,
             )
             .await
             .unwrap();
@@ -88,28 +70,23 @@ impl PolygonApp {
         surface.configure(&device, &config);
 
         let renderer = Renderer::new(
-            &device, 
-            config.format, 
-            WGSL_SHADER_SOURCE,
-            size.width as f32,
-            size.height as f32,
+            &device, config.format, WGSL_SHADER_SOURCE,
+            size.width as f32, size.height as f32,
         );
 
         let egui_ctx = egui::Context::default();
         let egui_state = egui_winit::State::new(
             egui_ctx.clone(), egui::ViewportId::ROOT, &window,
             Some(window.scale_factor() as f32),
-            Some(device.limits().max_texture_dimension_2d as usize),
+            None, 
         );
         let egui_renderer = egui_wgpu::Renderer::new(
-            &device, config.format, None, 1,    
+            &device, config.format, None, 1,
         );
 
-        let scene = create_mvp_scene();
-        let camera = Camera::new(
-            Point3::new(0.0, 0.0, -2.0), 
-            0.0, 0.0, 75.0, 0.1, 100.0
-        );
+        let scene = demo_scene::create_mvp_scene();
+
+        let camera = Camera::new(75.0, 0.1, 100.0);
         
         let initial_focus = window.has_focus();
         let mut initial_grab = false;
@@ -119,18 +96,23 @@ impl PolygonApp {
                 .is_ok() {
                 window.set_cursor_visible(false);
                 initial_grab = true;
-            } else {
-                eprintln!("Could not grab cursor on init.");
-            }
+            } else { eprintln!("Could not grab cursor on init."); }
         }
         
-        let camera_controller = CameraController::new(initial_grab, 0.002);
+        // Initialize CameraController with the orientation from demo_scene's initial camera pose
+        let initial_cam_yaw_from_scene = std::f32::consts::PI; // Matches demo_scene
+        let initial_cam_pitch_from_scene = 0.0;             // Matches demo_scene
 
+        let camera_controller = CameraController::new(
+            initial_cam_yaw_from_scene, 
+            initial_cam_pitch_from_scene, 
+            initial_grab, 
+            0.002
+        );
 
         Self {
             surface, device, queue, config, size,
-            renderer, 
-            scene, camera, camera_controller,
+            renderer, scene, camera, camera_controller,
             egui_ctx, egui_state, egui_renderer,
             is_focused: initial_focus,
         }
@@ -144,8 +126,6 @@ impl PolygonApp {
             self.config.width = new_size.width;
             self.config.height = new_size.height;
             self.surface.configure(&self.device, &self.config);
-            // Consider notifying the renderer or camera controller if aspect ratio changes are important
-            // For now, renderer updates screen dimensions via uniform buffer per frame.
         }
     }
 
@@ -154,8 +134,7 @@ impl PolygonApp {
     }
 
     pub fn update(&mut self, dt: f32) {
-        self.camera_controller.update_camera(&mut self.camera, dt);
-        // Old direct camera update logic removed
+        self.camera_controller.apply_to_transform(&mut self.scene.active_camera_local_transform, dt);
     }
 
     pub fn render(&mut self, window: &Window) -> Result<(), wgpu::SurfaceError> {
@@ -173,10 +152,7 @@ impl PolygonApp {
         );
 
         let raw_input = self.egui_state.take_egui_input(window);
-        let full_output = self.egui_ctx.run(raw_input, |ctx| {
-            build_ui(ctx); 
-        });
-
+        let full_output = self.egui_ctx.run(raw_input, |ctx| { build_ui(ctx); });
         self.egui_state.handle_platform_output(window, full_output.platform_output);
         let tris = self.egui_ctx.tessellate(full_output.shapes, self.egui_ctx.pixels_per_point());
         for (id, image_delta) in &full_output.textures_delta.set {
@@ -198,52 +174,23 @@ impl PolygonApp {
             });
             self.egui_renderer.render(&mut gui_render_pass, &tris, &screen_descriptor);
         }
-        for tex_id in &full_output.textures_delta.free {
-            self.egui_renderer.free_texture(tex_id);
-        }
+        for tex_id in &full_output.textures_delta.free { self.egui_renderer.free_texture(tex_id); }
 
         self.queue.submit(std::iter::once(encoder.finish()));
         output_texture.present();
         Ok(())
     }
     
-    // Renamed from handle_input to handle_window_event to better reflect its role
     pub fn handle_window_event(&mut self, event: &WindowEvent, window: &Window) -> bool {
-        let egui_consumed = self.egui_state.on_window_event(window, event);
-        if egui_consumed.consumed { return true; }
-
-        // Delegate relevant window events to the camera controller
-        if self.camera_controller.handle_window_event(event, window) {
-            return true;
-        }
-
-        // App-specific window event handling (if any, beyond controller and Egui)
+        if self.egui_state.on_window_event(window, event).consumed { return true; }
+        if self.camera_controller.handle_window_event(event, window) { return true; }
         match event {
-            WindowEvent::Focused(focused) => {
-                self.is_focused = *focused;
-                // CameraController's handle_window_event already handles ungrabbing on focus loss
-                false // Let main loop also see it via set_focused if needed
-            }
-             WindowEvent::MouseInput { state, button, .. } => {
-                // This specific logic is for Egui or other UI interactions not related to camera grabbing.
-                // Camera grabbing on click is now handled by CameraController.
-                // If Egui didn't consume it, and controller didn't, then it's not handled here for now.
-                if !self.camera_controller.cursor_grabbed && *state == ElementState::Pressed && *button == winit::event::MouseButton::Left {
-                     // If the controller didn't handle it (e.g. because a UI element was clicked),
-                     // we might have app-specific logic here. But for now, if cursor is not grabbed,
-                     // left click is likely for UI. The controller handles grabbing if app has focus and cursor isn't grabbed.
-                }
-                false
-            }
-            // Keyboard events for camera are now handled by CameraController.
-            // App-specific keyboard shortcuts (not camera related) could be here.
+            WindowEvent::Focused(focused) => { self.is_focused = *focused; false }
             _ => false,
         }
     }
 
     pub fn handle_device_event(&mut self, event: &DeviceEvent, _window: &Window) {
-        // Delegate device events (like mouse motion for camera) to the camera controller
-        // The window parameter isn't strictly needed by the current controller.handle_device_event
         self.camera_controller.handle_device_event(event);
     }
 }
