@@ -1,4 +1,5 @@
 // src/engine_lib/side_handler.rs
+
 use std::collections::VecDeque;
 use glam::{Mat4, Vec3};
 use crate::engine_lib::scene_types::{
@@ -8,11 +9,9 @@ use crate::engine_lib::scene_types::{
 use crate::engine_lib::camera::Camera;
 use crate::rendering_lib::geometry::ConvexPolygon;
 use crate::rendering_lib::vertex::Vertex;
-// Use public demo_scene constants
 use crate::demo_scene::{
     PORTAL_ID_FRONT, PORTAL_ID_BACK, PORTAL_ID_LEFT, PORTAL_ID_RIGHT, PORTAL_ID_TOP, PORTAL_ID_BOTTOM,
 };
-
 
 pub const MAX_PORTAL_RECURSION_DEPTH: u32 = 10;
 
@@ -58,12 +57,11 @@ impl SideHandler for StandardWallHandler {
     }
 }
 
-// ADDED this function
 pub fn get_portal_alignment_transform(
     source_portal_id_on_current_bp: PortalId,
     target_portal_id_on_target_bp: PortalId,
 ) -> Mat4 {
-    let room_half_size = 1.5; // Matches demo_scene.rs cuboid half_size
+    let room_half_size = 1.5;
 
     match (source_portal_id_on_current_bp, target_portal_id_on_target_bp) {
         (PORTAL_ID_FRONT, PORTAL_ID_BACK) => {
@@ -90,7 +88,6 @@ pub fn get_portal_alignment_transform(
     }
 }
 
-
 pub struct StandardPortalHandler;
 impl SideHandler for StandardPortalHandler {
     fn process_render(&self, ctx: &mut HandlerContext) {
@@ -99,20 +96,56 @@ impl SideHandler for StandardPortalHandler {
             _ => { return; }
         };
 
-        let portal_local_normal: &Vec3 = &ctx.blueprint_side.local_normal;
-        
-        let normal_in_host_bp_space = ctx.transform_to_camera_host_hull.transform_vector3(*portal_local_normal).normalize_or_zero();
+        let portal_local_normal_vec = ctx.blueprint_side.local_normal;
+
+        // Calculate normal_in_cam_space
+        let normal_in_host_bp_space = ctx.transform_to_camera_host_hull.transform_vector3(portal_local_normal_vec).normalize_or_zero();
         let normal_in_cam_space = ctx.camera_view_from_host_hull.transform_vector3(normal_in_host_bp_space).normalize_or_zero();
 
-        let cull_threshold = 1e-3;
-        if normal_in_cam_space.z <= cull_threshold {
+        // --- New Culling Logic ---
+        // Get a point on the portal plane in blueprint local space
+        if ctx.blueprint_side.vertex_indices.is_empty() {
+            // This side has no vertices, cannot be a portal plane
             return;
         }
+        let p0_bp_local_idx = ctx.blueprint_side.vertex_indices[0];
+        
+        // Access blueprint through scene context to get local vertices
+        let p0_bp_local = match ctx.scene.blueprints.get(&ctx.current_instance.blueprint_id) {
+            Some(blueprint) => {
+                if p0_bp_local_idx < blueprint.local_vertices.len() {
+                    blueprint.local_vertices[p0_bp_local_idx]
+                } else {
+                    // Invalid vertex index for blueprint
+                    return; 
+                }
+            }
+            None => {
+                // Blueprint not found in scene, should not happen
+                return; 
+            }
+        };
+
+        // Transform P0 to camera space
+        let p0_host_hull_space = ctx.transform_to_camera_host_hull.transform_point3(p0_bp_local);
+        let p0_cam_space = ctx.camera_view_from_host_hull.transform_point3(p0_host_hull_space);
+
+        let d_plane_constant = -normal_in_cam_space.dot(p0_cam_space);
+
+        let culling_epsilon = 1e-5; 
+        if d_plane_constant < -culling_epsilon {
+            return; // Cull
+        }
+
+        // Original culling logic (for reference, now replaced):
+        // let cull_threshold_z = 1e-3;
+        // if normal_in_cam_space.z <= cull_threshold_z {
+        //     return;
+        // }
 
         if ctx.current_recursion_depth >= MAX_PORTAL_RECURSION_DEPTH { return; }
         if !ctx.scene.instances.contains_key(target_instance_id_from_config) { return; }
 
-        // Use the new centralized function
         let portal_alignment_transform = get_portal_alignment_transform(
             ctx.blueprint_side.local_portal_id.expect("Portal handler on side with no local_portal_id"),
             *target_portal_id_on_target_bp_from_config

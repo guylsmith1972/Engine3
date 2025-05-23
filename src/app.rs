@@ -85,8 +85,8 @@ impl PolygonApp {
         );
 
         let scene = demo_scene::create_mvp_scene();
-        let camera = Camera::new(75.0, 0.1, 100.0);
-        
+        let camera = Camera::new(75.0, 0.01, 100.0); // Changed znear from 0.1 to 0.01
+
         let initial_focus = window.has_focus();
         let mut initial_grab = false;
         if initial_focus {
