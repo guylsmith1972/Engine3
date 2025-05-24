@@ -1,15 +1,17 @@
 // src/engine_lib/side_handler.rs
+
 use std::collections::VecDeque;
-use glam::{Mat4, Vec3}; // Changed
+use glam::{Mat4, Vec3};
 use crate::engine_lib::scene_types::{
     Scene, HandlerConfig,
-    HullInstance, BlueprintSide, TraversalState
-    // SideHandlerTypeId is inferred from HandlerConfig::get_intended_handler_type()
-    // HullBlueprint is accessed via scene.blueprints
+    HullInstance, BlueprintSide, TraversalState, PortalId,
 };
 use crate::engine_lib::camera::Camera;
 use crate::rendering_lib::geometry::ConvexPolygon;
 use crate::rendering_lib::vertex::Vertex;
+use crate::demo_scene::{
+    PORTAL_ID_FRONT, PORTAL_ID_BACK, PORTAL_ID_LEFT, PORTAL_ID_RIGHT, PORTAL_ID_TOP, PORTAL_ID_BOTTOM,
+};
 
 pub const MAX_PORTAL_RECURSION_DEPTH: u32 = 10;
 
@@ -21,8 +23,8 @@ pub struct HandlerContext<'a> {
     pub current_instance: &'a HullInstance,
     pub blueprint_side: &'a BlueprintSide,
     pub side_config: &'a HandlerConfig,
-    pub transform_to_camera_host_hull: &'a Mat4, // Uses glam::Mat4
-    pub camera_view_from_host_hull: &'a Mat4,   // Uses glam::Mat4
+    pub transform_to_camera_host_hull: &'a Mat4,
+    pub camera_view_from_host_hull: &'a Mat4,
     pub screen_width: f32,
     pub screen_height: f32,
     pub visible_screen_polygon: ConvexPolygon,
@@ -55,6 +57,37 @@ impl SideHandler for StandardWallHandler {
     }
 }
 
+pub fn get_portal_alignment_transform(
+    source_portal_id_on_current_bp: PortalId,
+    target_portal_id_on_target_bp: PortalId,
+) -> Mat4 {
+    let room_half_size = 1.5;
+
+    match (source_portal_id_on_current_bp, target_portal_id_on_target_bp) {
+        (PORTAL_ID_FRONT, PORTAL_ID_BACK) => {
+            Mat4::from_translation(Vec3::new(0.0, 0.0, room_half_size * 2.0))
+        }
+        (PORTAL_ID_BACK, PORTAL_ID_FRONT) => {
+            Mat4::from_translation(Vec3::new(0.0, 0.0, -room_half_size * 2.0))
+        }
+        (PORTAL_ID_RIGHT, PORTAL_ID_LEFT) => {
+            Mat4::from_translation(Vec3::new(room_half_size * 2.0, 0.0, 0.0))
+        }
+        (PORTAL_ID_LEFT, PORTAL_ID_RIGHT) => {
+            Mat4::from_translation(Vec3::new(-room_half_size * 2.0, 0.0, 0.0))
+        }
+        (PORTAL_ID_TOP, PORTAL_ID_BOTTOM) => {
+            Mat4::from_translation(Vec3::new(0.0, room_half_size * 2.0, 0.0))
+        }
+        (PORTAL_ID_BOTTOM, PORTAL_ID_TOP) => {
+            Mat4::from_translation(Vec3::new(0.0, -room_half_size * 2.0, 0.0))
+        }
+        _ => {
+            Mat4::IDENTITY
+        }
+    }
+}
+
 pub struct StandardPortalHandler;
 impl SideHandler for StandardPortalHandler {
     fn process_render(&self, ctx: &mut HandlerContext) {
@@ -63,48 +96,62 @@ impl SideHandler for StandardPortalHandler {
             _ => { return; }
         };
 
-        let portal_local_normal: &Vec3 = &ctx.blueprint_side.local_normal; // Changed to Vec3
-        
-        // For normals (directions), transform with w=0 and normalize.
-        // The upper 3x3 of the matrix is used. If non-uniform scaling, inverse transpose is needed.
-        // Assuming rotation/uniform scale for now, matching previous simplified logic.
-        let normal_in_host_bp_space = ctx.transform_to_camera_host_hull.transform_vector3(*portal_local_normal).normalize_or_zero();
+        let portal_local_normal_vec = ctx.blueprint_side.local_normal;
+
+        // Calculate normal_in_cam_space
+        let normal_in_host_bp_space = ctx.transform_to_camera_host_hull.transform_vector3(portal_local_normal_vec).normalize_or_zero();
         let normal_in_cam_space = ctx.camera_view_from_host_hull.transform_vector3(normal_in_host_bp_space).normalize_or_zero();
 
-        let cull_threshold = 1e-3;
-        if normal_in_cam_space.z <= cull_threshold {
+        // --- New Culling Logic ---
+        // Get a point on the portal plane in blueprint local space
+        if ctx.blueprint_side.vertex_indices.is_empty() {
+            // This side has no vertices, cannot be a portal plane
             return;
         }
+        let p0_bp_local_idx = ctx.blueprint_side.vertex_indices[0];
+        
+        // Access blueprint through scene context to get local vertices
+        let p0_bp_local = match ctx.scene.blueprints.get(&ctx.current_instance.blueprint_id) {
+            Some(blueprint) => {
+                if p0_bp_local_idx < blueprint.local_vertices.len() {
+                    blueprint.local_vertices[p0_bp_local_idx]
+                } else {
+                    // Invalid vertex index for blueprint
+                    return; 
+                }
+            }
+            None => {
+                // Blueprint not found in scene, should not happen
+                return; 
+            }
+        };
+
+        // Transform P0 to camera space
+        let p0_host_hull_space = ctx.transform_to_camera_host_hull.transform_point3(p0_bp_local);
+        let p0_cam_space = ctx.camera_view_from_host_hull.transform_point3(p0_host_hull_space);
+
+        let d_plane_constant = -normal_in_cam_space.dot(p0_cam_space);
+
+        let culling_epsilon = 1e-5; 
+        if d_plane_constant < -culling_epsilon {
+            return; // Cull
+        }
+
+        // Original culling logic (for reference, now replaced):
+        // let cull_threshold_z = 1e-3;
+        // if normal_in_cam_space.z <= cull_threshold_z {
+        //     return;
+        // }
 
         if ctx.current_recursion_depth >= MAX_PORTAL_RECURSION_DEPTH { return; }
         if !ctx.scene.instances.contains_key(target_instance_id_from_config) { return; }
 
-        let mut portal_alignment_transform = Mat4::IDENTITY; // Changed
-        let room_half_size = 1.5;
-
-        match (ctx.blueprint_side.local_portal_id, *target_portal_id_on_target_bp_from_config) {
-            (Some(crate::demo_scene::PORTAL_ID_FRONT), crate::demo_scene::PORTAL_ID_BACK) => {
-                portal_alignment_transform = Mat4::from_translation(Vec3::new(0.0, 0.0, room_half_size * 2.0));
-            }
-            (Some(crate::demo_scene::PORTAL_ID_BACK), crate::demo_scene::PORTAL_ID_FRONT) => {
-                portal_alignment_transform = Mat4::from_translation(Vec3::new(0.0, 0.0, -room_half_size * 2.0));
-            }
-            (Some(crate::demo_scene::PORTAL_ID_RIGHT), crate::demo_scene::PORTAL_ID_LEFT) => {
-                portal_alignment_transform = Mat4::from_translation(Vec3::new(room_half_size * 2.0, 0.0, 0.0));
-            }
-            (Some(crate::demo_scene::PORTAL_ID_LEFT), crate::demo_scene::PORTAL_ID_RIGHT) => {
-                portal_alignment_transform = Mat4::from_translation(Vec3::new(-room_half_size * 2.0, 0.0, 0.0));
-            }
-            (Some(crate::demo_scene::PORTAL_ID_TOP), crate::demo_scene::PORTAL_ID_BOTTOM) => {
-                portal_alignment_transform = Mat4::from_translation(Vec3::new(0.0, room_half_size * 2.0, 0.0));
-            }
-            (Some(crate::demo_scene::PORTAL_ID_BOTTOM), crate::demo_scene::PORTAL_ID_TOP) => {
-                portal_alignment_transform = Mat4::from_translation(Vec3::new(0.0, -room_half_size * 2.0, 0.0));
-            }
-            _ => { /* Default to identity */ }
-        }
-
-        let next_transform_to_camera_host_hull = *ctx.transform_to_camera_host_hull * portal_alignment_transform; // Changed
+        let portal_alignment_transform = get_portal_alignment_transform(
+            ctx.blueprint_side.local_portal_id.expect("Portal handler on side with no local_portal_id"),
+            *target_portal_id_on_target_bp_from_config
+        );
+        
+        let next_transform_to_camera_host_hull = *ctx.transform_to_camera_host_hull * portal_alignment_transform;
 
         ctx.traversal_queue.push_back(TraversalState {
             current_instance_id: *target_instance_id_from_config,
